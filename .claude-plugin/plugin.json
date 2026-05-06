@@ -1,0 +1,13 @@
+{
+  "name": "council-gate",
+  "version": "1.2.1",
+  "description": "Cross-model adversarial review of docs, proposals, and PR diffs. Runs your artifact past frontier LLMs from different providers, measures disagreement, and routes consensus vs disagreement to an explicit escalation channel.",
+  "author": {
+    "name": "council-gate contributors",
+    "url": "https://github.com/AdishAssain/council-gate"
+  },
+  "homepage": "https://github.com/AdishAssain/council-gate",
+  "repository": "https://github.com/AdishAssain/council-gate",
+  "license": "MIT",
+  "keywords": ["review", "llm", "ensemble", "evaluation", "proposal", "pr-review"]
+}

@@ -99,6 +99,14 @@ council-gate init
 council-gate review path\to\proposal.docx
 ```
 
+**Claude Code plugin (in-chat install, no terminal):**
+```
+/plugin marketplace add github:AdishAssain/council-gate
+/plugin install council-gate
+/review path/to/proposal.docx
+```
+The plugin auto-prompts you for an OpenRouter key on first use. No terminal required.
+
 **Docker (no install, hermetic, good for CI):**
 ```bash
 docker run --rm -v "$PWD:/work" -w /work \
