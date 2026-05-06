@@ -1,0 +1,79 @@
+# Publishes council-gate to PyPI on every v* tag, via PyPI Trusted Publishing
+# (OIDC — no API tokens stored in GitHub).
+#
+# ONE-TIME SETUP (Adish, you must do this on pypi.org BEFORE the first tag):
+#
+#   1. Go to https://pypi.org/manage/account/publishing/
+#   2. Click "Add a new pending publisher" (yes, even before the project exists)
+#   3. Fill in:
+#        Project name:    council-gate
+#        Owner:           AdishAssain
+#        Repository:      council-gate
+#        Workflow name:   release.yml
+#        Environment:     pypi          ← must match `environment:` below
+#   4. In this GitHub repo: Settings → Environments → New environment named `pypi`
+#      (no protection rules needed for personal repos; add reviewers if you want
+#       a manual approval gate before each publish).
+#
+# Then to release: bump version in pyproject.toml + CHANGELOG, commit, then:
+#   git tag v1.2.2 && git push origin v1.2.2
+# This workflow takes over from there.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Verify metadata
+        run: uvx twine check dist/*
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/council-gate
+    permissions:
+      id-token: write   # required for PyPI Trusted Publishing OIDC
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body_path: CHANGELOG.md

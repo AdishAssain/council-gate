@@ -7,6 +7,8 @@
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/AdishAssain/council-gate/pkgs/container/council-gate)
 
 > Cross-model adversarial review with an asymmetric entropy gate.
+>
+> ⚠️ **Pre-stable:** the `1.x` line is functionally complete, but CLI flags / env var names / report format are not frozen until `2.0`. Pin a version in CI. See [CHANGELOG → Stability](CHANGELOG.md#stability).
 
 `council-gate` runs any artifact — `.docx` proposal, `.pdf` report, engineering spec, PR diff, data analysis, strategy doc — past a council of frontier LLMs from **different providers**, measures cross-reviewer disagreement, and routes the result to one of two destinations:
 

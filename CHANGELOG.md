@@ -1,5 +1,19 @@
 # Changelog
 
+## Stability
+
+> **`council-gate` is pre-stable.** While the major version is `1.x` for ergonomics (the tool is functionally complete and shipping real reviews), the API surface — CLI flags, env var names, and report format — is **not frozen** until `2.0`. Minor versions may break things. Pin a version in CI / scripts.
+>
+> Until 2.0, treat version bumps as 0Ver-style: any release can change behaviour. Read the entry below before upgrading.
+
+## 1.2.2 — 2026-05-06
+
+PyPI-readiness housekeeping. No user-visible behavior change.
+
+- `pyproject.toml`: added `[project.authors]`, fixed `Operating System :: POSIX` → `OS Independent` (we ship Windows + Docker), added `Documentation` and `Changelog` to `[project.urls]`, added `Programming Language :: Python :: 3.13` classifier, bumped `Development Status :: 3 - Alpha` → `4 - Beta`.
+- `.github/workflows/release.yml`: PyPI publishing on `v*` tag via Trusted Publishing (OIDC, no API tokens). Also attaches wheels to a GitHub Release.
+- Verified: `uv build` produces clean sdist + wheel, `twine check` passes, wheel installs in a fresh venv with the entrypoint resolving.
+
 ## 1.2.1 — 2026-05-06
 
 - One-line installer for macOS/Linux/WSL (`install.sh`) and Windows (`install.ps1`). Both auto-install `uv`, install `council-gate`, and update your shell PATH so the binary works in fresh terminals — fixes the "command not found after restart" friction.

@@ -1,18 +1,24 @@
 [project]
 name = "council-gate"
-version = "1.2.1"
+version = "1.2.2"
 description = "Cross-model adversarial review with an entropy gate that routes consensus vs disagreement to an explicit escalation channel."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
+authors = [
+    { name = "council-gate contributors", email = "AdishAssain@users.noreply.github.com" },
+]
 keywords = ["llm", "review", "ai", "ensemble", "evaluation", "adversarial"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: POSIX",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "httpx>=0.27.0",
@@ -24,6 +30,8 @@ dependencies = [
 Homepage = "https://github.com/AdishAssain/council-gate"
 Source = "https://github.com/AdishAssain/council-gate"
 Issues = "https://github.com/AdishAssain/council-gate/issues"
+Documentation = "https://github.com/AdishAssain/council-gate#readme"
+Changelog = "https://github.com/AdishAssain/council-gate/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
