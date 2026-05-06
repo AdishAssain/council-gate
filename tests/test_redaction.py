@@ -11,7 +11,6 @@ import pytest
 
 from council_gate.redaction import RefusedFilename, check_filename, redact
 
-
 # --- filename refusal ----------------------------------------------------
 
 

@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+from datetime import UTC
 from importlib.resources import files
 from pathlib import Path
 
@@ -10,9 +11,15 @@ from dotenv import load_dotenv
 
 from council_gate.council import Council
 from council_gate.escalation import format_escalation
-from council_gate.gate import CORRELATED_BLINDSPOT_DIMENSIONS, EntropyGate, Verdict
+from council_gate.gate import (
+    CORRELATED_BLINDSPOT_DIMENSIONS,
+    EntropyGate,
+    GateVerdict,
+    Verdict,
+)
 from council_gate.providers import CodexProvider, OpenRouterProvider, Provider
 from council_gate.redaction import RefusedFilename, check_filename, redact
+from council_gate.types import Review
 
 BUNDLED_MODES = ("eng", "proposal", "analysis", "general")
 
@@ -164,26 +171,78 @@ def _cmd_review(args: argparse.Namespace) -> int:
     reviews = council.run(artifact_text, system_prompt)
     gate = EntropyGate(threshold=args.threshold)
     v = gate.evaluate(reviews)
+    _render_markdown(args, v, reviews, redaction_count)
+    return 0
 
-    print(f"\nverdict: {v.verdict.value}")
-    print(f"disagreement: {v.disagreement:.3f}")
-    print(f"reviewers: {v.reviewer_count}")
-    print(f"reason: {v.reason}\n")
+
+def _render_markdown(
+    args: argparse.Namespace,
+    v: GateVerdict,
+    reviews: list[Review],
+    redaction_count: int,
+) -> None:
+    """Print a markdown-formatted report to stdout.
+
+    Designed so `council-gate review … | tee output.md` produces a file
+    that renders cleanly in any markdown viewer (Cursor, VS Code, GitHub).
+    """
+    from datetime import datetime
+
+    print(f"# council-gate review — {args.artifact.name}\n")
+    print(f"- **Verdict:** `{v.verdict.value}`")
+    print(f"- **Disagreement:** {v.disagreement:.3f} (threshold {args.threshold:.2f})")
+    print(f"- **Reviewers:** {v.reviewer_count} succeeded out of {len(reviews)}")
+    print(f"- **Mode:** `{args.mode}`")
+    print(
+        f"- **Run at:** {datetime.now(UTC).isoformat(timespec='seconds')}"
+    )
+    if redaction_count:
+        print(
+            f"- **Redaction:** {redaction_count} secret-shaped substring(s) "
+            f"scrubbed from artifact before dispatch"
+        )
+    print(f"\n> {v.reason}\n")
 
     if v.verdict == Verdict.ESCALATE:
-        print("--- ESCALATION MESSAGE ---")
+        print("## Escalation message\n")
+        print(
+            "Paste this into your team channel (PR comment, Slack, WhatsApp). "
+            "Verbatim — the divergence detail is the value.\n"
+        )
         print(format_escalation(args.artifact.name, v, reviews, args.threshold))
-    elif v.verdict == Verdict.CONSENSUS_CHECK:
-        print("Consensus reached. Verify against correlated-blindspot dimensions:")
-        for d in CORRELATED_BLINDSPOT_DIMENSIONS:
-            print(f"  - {d}")
         print()
-        for r in reviews:
-            print(f"\n--- {r.provider} ({r.model_id}) ---")
-            print(r.raw_text[:1500])
-            if len(r.raw_text) > 1500:
-                print(f"[output truncated; {len(r.raw_text) - 1500} more chars not shown]")
-    return 0
+    elif v.verdict == Verdict.CONSENSUS_CHECK:
+        print("## Verify before trusting consensus\n")
+        print(
+            "Consensus reached, but the gate is asymmetric: low disagreement is "
+            "treated as *suspect consensus*, not approval. Frontier models share "
+            "blindspots. Spot-check the council's output against these dimensions:\n"
+        )
+        for d in CORRELATED_BLINDSPOT_DIMENSIONS:
+            print(f"- {d}")
+        print()
+
+    print("## Per-reviewer output\n")
+    for r in reviews:
+        status = "✓" if r.ok else "✗"
+        print(f"### {status} `{r.model_id}` ({r.provider})\n")
+        if r.error:
+            print(f"**Error:** `{r.error}`\n")
+            continue
+        if r.findings:
+            print("**Parsed findings:**\n")
+            for f in r.findings:
+                loc = f" `{f.location}`" if f.location else ""
+                print(f"- **{f.severity.upper()}**{loc} — {f.summary}")
+            print()
+        print("**Raw output:**\n")
+        print("```")
+        print(r.raw_text[:1500])
+        if len(r.raw_text) > 1500:
+            print(
+                f"\n[output truncated; {len(r.raw_text) - 1500} more chars not shown]"
+            )
+        print("```\n")
 
 
 def main() -> int:
