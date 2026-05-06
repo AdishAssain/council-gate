@@ -5,7 +5,7 @@ When OpenAI's [Codex CLI](https://github.com/openai/codex) is the artifact's aut
 ## Prerequisites
 
 ```bash
-uv tool install git+https://github.com/AdishAssain/council-gate
+uv tool install council-gate    # or: pip install council-gate
 council-gate init                      # writes ~/.config/council-gate/.env
 $EDITOR ~/.config/council-gate/.env    # set OPENROUTER_API_KEY
 ```

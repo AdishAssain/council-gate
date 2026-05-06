@@ -6,6 +6,18 @@
 >
 > Until 2.0, treat version bumps as 0Ver-style: any release can change behaviour. Read the entry below before upgrading.
 
+## 1.2.3 — 2026-05-06
+
+PATCH: post-PyPI-publish cleanup. No behaviour change — same binary, faster install.
+
+- Now that `1.2.2` is on PyPI, all installers point to PyPI instead of `git+https://...`:
+  - `install.sh`, `install.ps1`: `uv tool install council-gate` (was `uv tool install git+https://...`).
+  - Claude Code plugin (`commands/review.md`, `skills/council-gate/SKILL.md`): `uvx council-gate` (was `uvx --from git+...`). First-run plugin invocation goes from ~30 s git-clone to ~2 s pip-resolve.
+  - README "Manual install" snippet: bare `uv tool install council-gate`.
+- Plugin format fix: skill moved from flat `skills/council-gate.md` to `skills/council-gate/SKILL.md` per Claude Code plugin spec (skills must be `<name>/SKILL.md`, not flat).
+- New `CONTRIBUTING.md` covering dev setup, the two non-negotiable design primitives, commit conventions, and where help is most useful.
+- README rewritten for both engineer and non-engineer audiences: lead with two-audience framing, install matrix, "What a report looks like" excerpt, then the existing technical content (architecture, cross-model rationale, asymmetric-gate rationale, privacy guardrails) preserved beneath.
+
 ## 1.2.2 — 2026-05-06
 
 PyPI-readiness housekeeping. No user-visible behavior change.

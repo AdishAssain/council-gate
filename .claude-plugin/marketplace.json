@@ -9,7 +9,7 @@
       "name": "council-gate",
       "source": ".",
       "description": "Cross-model adversarial review for docs, proposals, and PR diffs.",
-      "version": "1.2.1",
+      "version": "1.2.3",
       "category": "review"
     }
   ]

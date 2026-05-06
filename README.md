@@ -1,21 +1,123 @@
 # council-gate
 
+[![PyPI](https://img.shields.io/pypi/v/council-gate.svg)](https://pypi.org/project/council-gate/)
+[![Python](https://img.shields.io/pypi/pyversions/council-gate.svg)](https://pypi.org/project/council-gate/)
 [![CI](https://github.com/AdishAssain/council-gate/actions/workflows/test.yml/badge.svg)](https://github.com/AdishAssain/council-gate/actions/workflows/test.yml)
-[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![PyPI](https://img.shields.io/badge/install-uv%20tool-orange)](https://github.com/astral-sh/uv)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/AdishAssain/council-gate/pkgs/container/council-gate)
 
 > Cross-model adversarial review with an asymmetric entropy gate.
 >
-> ⚠️ **Pre-stable:** the `1.x` line is functionally complete, but CLI flags / env var names / report format are not frozen until `2.0`. Pin a version in CI. See [CHANGELOG → Stability](CHANGELOG.md#stability).
+> ⚠️ **Pre-stable.** The `1.x` line is functionally complete, but CLI flags / env var names / report format aren't frozen until `2.0`. Pin a version in CI. See [CHANGELOG → Stability](CHANGELOG.md#stability).
 
-`council-gate` runs any artifact — `.docx` proposal, `.pdf` report, engineering spec, PR diff, data analysis, strategy doc — past a council of frontier LLMs from **different providers**, measures cross-reviewer disagreement, and routes the result to one of two destinations:
+**`council-gate` runs your document, proposal, or PR diff past 3+ AI models from different providers (Claude, GPT, Gemini, Llama, …), then tells you where they agree, where they disagree, and what they're statistically likely to have missed together.** Single-model reviews are biased toward their own outputs — consensus from one model isn't a real signal.
 
-- **High disagreement** → a formatted escalation message ready for human adjudication.
-- **Low disagreement** → a consensus report annotated with **known correlated-failure dimensions** the council is statistically likely to have missed together.
+---
 
-The two original primitives are the **council** (cross-model, not cross-prompt) and the **entropy gate** (asymmetric — only *high* disagreement is a clean signal; *low* disagreement is treated as suspect, not as approval).
+## Who is this for?
+
+| If you're a… | You hand it… | You get back… |
+|---|---|---|
+| **Product manager / researcher / grant writer** | a `.docx` proposal, `.pdf` strategy doc, or `.md` brief | a clean markdown report flagging unclear claims, missing failure modes, audience-fit issues, statistical pitfalls — three independent AI editors in one pass |
+| **Engineer** | a PR diff, design spec, RFC, or source file | structured findings on edge cases, security boundaries, silent-failure paths — and where reviewers disagreed badly enough that a human should look |
+
+No AI/ML background required. You need a file and ~60 seconds.
+
+---
+
+## Install (one command)
+
+The fastest path on each platform:
+
+| Platform | Command |
+|---|---|
+| **Python users** | `pip install council-gate` |
+| **macOS / Linux / WSL** | `curl -LsSf https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.sh \| sh` |
+| **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.ps1 \| iex` |
+| **Claude Code** | `/plugin marketplace add github:AdishAssain/council-gate` then `/plugin install council-gate` |
+| **Docker** (no install) | `docker run --rm -v "$PWD:/work" -w /work -e OPENROUTER_API_KEY=... ghcr.io/adishassain/council-gate review proposal.docx` |
+
+The non-pip installers handle everything for you: install `uv`, install Python, install `council-gate` from PyPI, fix your PATH. **No prerequisite knowledge required, no Python pre-installed needed.**
+
+Then:
+
+```bash
+council-gate init                                  # paste your OpenRouter key (free at https://openrouter.ai/keys)
+council-gate review path/to/proposal.docx          # report saved to ./council-gate-proposal-<timestamp>.md
+```
+
+That's it. The default model mix runs on ~$1–2 of OpenRouter credit per review. Open the saved markdown in any viewer (Cursor, VS Code, GitHub, even Notes.app).
+
+---
+
+## What you can review
+
+**Supported formats — auto-detected, no flags:**
+
+- **Documents:** `.docx`, `.pdf`, `.pptx`, `.xlsx`, `.odt`, `.rtf`, `.epub` (converted to markdown via [MarkItDown](https://github.com/microsoft/markitdown))
+- **Plain text & code:** `.md`, `.txt`, `.diff`, `.patch`, source code in any language — read verbatim
+
+**Review styles** are auto-picked: `.docx`/`.pdf`/`.odt` → `proposal`; diffs / code / `.md` → `eng`. Override with `--mode`:
+
+| `--mode` | Best for | Looks for |
+|---|---|---|
+| `eng` | engineering specs, PR diffs, design docs | correctness, edge cases, failure modes, security boundaries, silent-failure paths |
+| `proposal` | grant proposals, strategy docs, pitches | claim/evidence asymmetry, vague language, audience fit, missing failure modes |
+| `analysis` | data analyses, research findings | sample bias, confounders, unsupported causal claims, reproducibility |
+| `general` | mixed / fallback | factual errors, internal inconsistencies, unsupported claims |
+
+Custom prompt? `--prompt path/to/my-prompt.md`.
+
+---
+
+## What a report looks like
+
+`council-gate review proposal.docx` saves a single markdown file. Excerpt:
+
+```markdown
+# Council review — `proposal.docx`
+
+**The council disagreed.** Reviewers did not converge on a single set of findings.
+Read the individual reviews below before acting.
+
+## At a glance
+| | |
+|---|---|
+| Verdict | ESCALATE |
+| Reviewers | 4 returned reviews · 1 errored |
+| Disagreement | 0.62 on a 0–1 scale (threshold 0.35; higher = more divergence) |
+| Mode | proposal |
+
+## What each reviewer said
+
+### claude-haiku-4-5
+| Severity | Where | Issue |
+|---|---|---|
+| MAJOR | Section 2 | Causal claim ("X drives Y") not supported by cited data |
+| MINOR | Abstract | "Significantly improves" is unquantified |
+…
+```
+
+Three verdicts:
+
+- **`ESCALATE`** — reviewers disagreed; needs human judgement.
+- **`CONSENSUS_CHECK`** — reviewers agreed, *but* the report ships with a checklist of dimensions where frontier AI models tend to share blindspots. Don't trust agreement as approval.
+- **`INCONCLUSIVE`** — too few reviewers returned usable output (network, quota, etc).
+
+---
+
+## Other commands
+
+| Command | What it does |
+|---|---|
+| `council-gate init` | Writes `~/.config/council-gate/.env` with your OpenRouter key. Interactive. Repairs your PATH if needed. |
+| `council-gate review <file>` | Runs the council. Auto-saves a markdown report. `--no-save` for stdout-only; `--print` for both. |
+| `council-gate doctor` | Diagnoses common setup issues: config present, key set, PATH on, codex CLI available. |
+| `council-gate update` | Reinstalls the latest from PyPI. |
+
+---
+
+## How it works
 
 ```
                   artifact (spec / diff / plan)
@@ -42,146 +144,79 @@ The two original primitives are the **council** (cross-model, not cross-prompt) 
     for human channel)               correlated blindspots)
 ```
 
-## What you can review
+The two original primitives are the **council** (cross-model, not cross-prompt) and the **entropy gate** (asymmetric — only *high* disagreement is a clean signal; *low* disagreement is treated as suspect, not as approval).
 
-**Supported formats** (no flags, auto-detected):
+### Why cross-model, not cross-prompt
 
-- **Documents**: `.docx`, `.pdf`, `.pptx`, `.xlsx`, `.odt`, `.rtf`, `.epub` — converted to markdown via [MarkItDown](https://github.com/microsoft/markitdown)
-- **Plain text**: `.md`, `.txt`, `.diff`, `.patch`, source code in any language — read verbatim
-
-Pick the `--mode` that matches your artifact, or let it auto-pick (`.docx`/`.pdf` → `proposal`, everything else → `eng`). The mode changes *what the council looks for*, not how disagreement is measured.
-
-| `--mode` | Use it for | Focus |
-|---|---|---|
-| `eng` | engineering specs, PR diffs, design docs, plans | correctness, edge cases, failure modes, missing-data handling, security boundaries, silent-failure paths |
-| `proposal` | grant proposals, strategy docs, pitches, research statements | claim/evidence asymmetry, hidden assumptions, audience fit, vague language, missing failure modes |
-| `analysis` | data analyses, research findings, statistical claims | sample bias, confounders, missing-data handling, unsupported causal claims, statistical pitfalls, reproducibility |
-| `general` | other / mixed / fallback | factual errors, internal inconsistencies, unsupported claims, hidden assumptions |
-
-Bring your own prompt with `--prompt path/to/your.md` for fully bespoke reviews.
-
-> **`council-gate` command not found after restarting your terminal?** Run `~/.local/bin/council-gate doctor` for setup diagnostics, or re-run `council-gate init` to repair your PATH (now writes both `.zshrc` and `.zprofile`).
-
-## Why cross-model, not cross-prompt
-
-Same-model self-evaluation is biased. [Panickssery et al. (2024)](https://arxiv.org/abs/2404.13076) showed that LLM evaluators recognise and favour their own generations — the bias is consistent and measurable, not stylistic. A "council" of three Claude personas reviewing Claude-generated code is doing performance, not adversarial work.
+Same-model self-evaluation is biased. [Panickssery et al. (2024)](https://arxiv.org/abs/2404.13076) showed that LLM evaluators recognise and favour their own generations — the bias is consistent and measurable. A "council" of three Claude personas reviewing Claude-generated code is doing performance, not adversarial work.
 
 `council-gate` enforces this with one rule: **the generator is excluded from the council.** Host integrations declare which provider produced the artifact via `COUNCIL_GENERATOR_PROVIDER`, and that provider's seats are dropped before the council runs.
 
-## Why the gate is asymmetric
+### Why the gate is asymmetric
 
 The naive design — *low entropy means trust, high entropy means escalate* — is half wrong.
 
-[Kim et al. (2025)](https://arxiv.org/abs/2506.07962) studied 350+ LLMs and found that models agree roughly **60% of the time when both err**. Their reported inter-model error correlation of r ≈ 0.77 implies an effective ensemble size of ~1.3 from three models — barely more diversified than asking one. The drivers are unsurprising in retrospect: shared providers, shared architectures, and **shared capability tier**. Larger frontier models are *more* correlated even across providers, not less, because they converge on similar training distributions and post-training patterns.
+[Kim et al. (2025)](https://arxiv.org/abs/2506.07962) studied 350+ LLMs and found that models agree roughly **60% of the time when both err**. The reported inter-model error correlation of r ≈ 0.77 implies an effective ensemble size of ~1.3 from three models — barely more diversified than asking one. The drivers: shared providers, shared architectures, and shared capability tier. Larger frontier models are *more* correlated even across providers, not less, because they converge on similar training distributions.
 
-[Shin et al. (2025)](https://arxiv.org/abs/2502.17086) sharpened this with a specific finding: frontier LLMs systematically over-weight technical validity and under-weight novelty when reviewing scientific work. A shared blindspot, not random noise.
+[Shin et al. (2025)](https://arxiv.org/abs/2502.17086) sharpened this: frontier LLMs systematically over-weight technical validity and under-weight novelty when reviewing scientific work. A shared blindspot, not random noise.
 
 The gate handles this asymmetrically:
 
-| Council output    | Naive read                      | `council-gate` read                                                                       |
-| ----------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| High disagreement | "Bad — humans must adjudicate." | Correct. Format the escalation.                                                           |
-| Low disagreement  | "Good — auto-proceed."          | Treat as *suspect consensus*. Surface the known correlated-failure dimensions explicitly. |
+| Council output | Naive read | `council-gate` read |
+|---|---|---|
+| High disagreement | "Bad — humans must adjudicate." | Correct. Format the escalation. |
+| Low disagreement | "Good — auto-proceed." | Treat as *suspect consensus*. Surface known correlated-failure dimensions explicitly. |
 
 In practice, low-disagreement output ships with a checklist (`novelty`, `edge cases`, `failure modes`, `missing-data handling`, `long-term maintenance`) for the human to verify against, rather than a green check.
 
-## Quickstart
+---
 
-**macOS / Linux / WSL:**
-```bash
-curl -LsSf https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.sh | sh
-council-gate init                                    # paste your OpenRouter key when prompted
-council-gate review path/to/proposal.docx            # auto-saves clean markdown report to cwd
-```
-
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.ps1 | iex
-council-gate init
-council-gate review path\to\proposal.docx
-```
-
-**Claude Code plugin (in-chat install, no terminal):**
-```
-/plugin marketplace add github:AdishAssain/council-gate
-/plugin install council-gate
-/review path/to/proposal.docx
-```
-The plugin auto-prompts you for an OpenRouter key on first use. No terminal required.
-
-**Docker (no install, hermetic, good for CI):**
-```bash
-docker run --rm -v "$PWD:/work" -w /work \
-    -e OPENROUTER_API_KEY=sk-or-... \
-    ghcr.io/adishassain/council-gate review proposal.docx
-```
-
-The native installers handle `uv`, `council-gate`, and your shell PATH so the binary works in fresh terminals. **You don't need Python pre-installed** — uv ships a managed Python 3.12 automatically. The report lands at `./council-gate-<artifact>-<timestamp>.md`, ready to open in any markdown viewer (Cursor, VS Code, GitHub).
-
-<details>
-<summary>Manual install (if you'd rather not pipe curl to sh)</summary>
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv tool install git+https://github.com/AdishAssain/council-gate
-uv tool update-shell    # ensures ~/.local/bin is on PATH in new terminals
-```
-</details>
-
-### Other commands
-
-| Command | What it does |
-|---|---|
-| `council-gate init [--openrouter-key …]` | Writes `~/.config/council-gate/.env`. Interactive prompt for the key. Offers to add `~/.local/bin` to your PATH if missing. |
-| `council-gate review <file> [--mode {eng,proposal,analysis,general}]` | Runs the council on the artifact. Auto-saves a clean markdown report. `--no-save` for stdout-only; `--print` for both. |
-| `council-gate doctor` | Diagnoses common setup issues: config present, key set, PATH on, codex CLI available. |
-| `council-gate update` | Pulls the latest from GitHub and reinstalls. One-liner instead of remembering the long uv invocation. |
-
-### Configuration
+## Configuration
 
 Lives at `~/.config/council-gate/.env` (XDG-compliant). `council-gate` never reads from the working directory; nothing lands in your repo.
 
 Three keys matter:
 
-- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** (Haiku, GPT-mini, Gemini Flash, Llama, Qwen, DeepSeek) — works on a $1-2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
+- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** (Haiku, GPT-mini, Gemini Flash, Llama, Qwen, DeepSeek) — works on a $1–2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
 - `COUNCIL_GENERATOR_PROVIDER` — slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. The corresponding seats are excluded from the council.
-- `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default 0.35.
+- `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default `0.35`.
 
-For a council seat that includes the OpenAI Codex CLI, install and authenticate `codex` separately ([openai/codex](https://github.com/openai/codex)).
+For an extra council seat using OpenAI's Codex CLI, install and authenticate `codex` separately ([openai/codex](https://github.com/openai/codex)).
+
+---
+
+## Privacy & secret-leak guardrails
+
+`council-gate` sends the artifact body to LLM APIs of every council seat. Three layers of protection ship by default:
+
+1. **Filename refusal.** The CLI refuses to read files matching obvious secret-bearing patterns (`.env`, `.pem`, `.key`, `id_rsa`, `*credentials*`, `*secret*`, `*.gpg`, `*.kdbx`).
+2. **Inline redaction.** The artifact body is scanned for known secret patterns (OpenAI/Anthropic/Google/AWS/Slack/GitHub keys, JWTs, PEM private-key blocks) and redacted with `[REDACTED:…]` placeholders before any model sees it. Redaction count is logged.
+3. **Disclosure (this section).** Don't pass files containing secrets, PII, or confidential third-party data. The redaction layer is defence in depth, not a substitute for judgement.
+
+To bypass both, pass `--skip-redaction-check`. Don't use this flag unless you've audited the artifact yourself.
+
+---
 
 ## Integrations
 
 `council-gate` is a CLI; host integrations are thin wrappers that set `COUNCIL_GENERATOR_PROVIDER` before invoking it.
 
-- **Claude Code** — `integrations/claude-code/`
+- **Claude Code plugin** — `.claude-plugin/` (use `/plugin install council-gate`)
+- **Claude Code skill** — `integrations/claude-code/`
 - **Codex CLI** — `integrations/codex/`
 - **GitHub Action** — `integrations/github-action/`
 
 Each is a copy-paste install. None require modifying `council-gate` itself.
 
-## Configuration
+---
 
-Three keys matter:
+## Contributing
 
-- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Diversity matters more than count; mix providers and capability tiers.
-- `COUNCIL_GENERATOR_PROVIDER` — provider slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. Set by host integrations; can be overridden with `--generator-provider`.
-- `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default 0.35.
+PRs, issues, and dogfood reports all welcome. The most useful contribution is **running `council-gate` on your real proposals/PRs/specs and filing the friction.**
 
-See `src/council_gate/_assets/env.example` for the full schema.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, where help is most needed, and the project's two non-negotiable design primitives.
 
-## How disagreement is measured
-
-Pairwise Jaccard distance over normalized token sets extracted from each reviewer's findings, averaged across reviewer pairs. The metric measures lexical overlap, not semantic agreement — sufficient for the asymmetric gate's purpose, since high disagreement still means high disagreement, and low disagreement is *already* treated as suspect rather than as approval.
-
-## Privacy and secret-leak guardrails
-
-`council-gate` sends the artifact body to the LLM APIs of every council seat. Three layers of protection ship by default:
-
-1. **Filename refusal.** The CLI refuses to read files matching obvious secret-bearing patterns (`.env`, `.pem`, `.key`, `id_rsa`, `*credentials*`, `*secret*`, `*.gpg`, `*.kdbx`).
-2. **Inline redaction.** The artifact body is scanned for known secret patterns (OpenAI/Anthropic/Google/AWS/Slack/GitHub keys, JWTs, PEM private-key blocks) and redacted with `[REDACTED:...]` placeholders before any model sees it. Redaction count is logged.
-3. **Disclosure.** This section. Don't pass files containing secrets, PII, or confidential third-party data. The redaction layer is defence in depth, not a substitute for judgement.
-
-To bypass both, pass `--skip-redaction-check`. Don't use this flag unless you've audited the artifact yourself.
+---
 
 ## Related work
 
@@ -189,17 +224,9 @@ To bypass both, pass `--skip-redaction-check`. Don't use this flag unless you've
 - Kim, E., Garg, A., Peng, K., & Garg, N. (2025). *Correlated Errors in Large Language Models.* ICML 2025. [arXiv:2506.07962](https://arxiv.org/abs/2506.07962)
 - Shin, H. et al. (2025). *Mind the Blind Spots: A Focus-Level Evaluation Framework for LLM Reviews.* EMNLP 2025 (Oral). [arXiv:2502.17086](https://arxiv.org/abs/2502.17086)
 
-## Contributor install
+## How disagreement is measured
 
-```bash
-git clone https://github.com/AdishAssain/council-gate.git
-cd council-gate
-uv sync --extra dev
-uv run pre-commit install      # runs ruff + pytest before each commit
-uv run pytest
-```
-
-CI runs `ruff check`, `pytest`, and a wheel-build sanity check on every push and PR (`.github/workflows/test.yml`). The pre-commit hooks catch most failures locally before they hit CI.
+Pairwise Jaccard distance over normalized token sets extracted from each reviewer's findings, averaged across reviewer pairs. The metric measures lexical overlap, not semantic agreement — sufficient for the asymmetric gate's purpose, since high disagreement still means high disagreement, and low disagreement is *already* treated as suspect rather than as approval.
 
 ## License
 

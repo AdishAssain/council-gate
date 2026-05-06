@@ -197,10 +197,7 @@ def _append_path_to_rc(rc_path: Path, export_line: str) -> None:
 
 
 def _cmd_update() -> int:
-    """Reinstall the CLI from the latest GitHub HEAD.
-
-    Equivalent to: uv tool install --reinstall --force git+https://github.com/AdishAssain/council-gate
-    """
+    """Reinstall the latest council-gate from PyPI."""
     import shutil
     import subprocess
 
@@ -214,7 +211,7 @@ def _cmd_update() -> int:
 
     cmd = [
         "uv", "tool", "install", "--reinstall", "--force",
-        "git+https://github.com/AdishAssain/council-gate",
+        "council-gate",
     ]
     print(f"running: {' '.join(cmd)}\n")
     rc = subprocess.run(cmd).returncode
@@ -519,7 +516,7 @@ def main() -> int:
 
     sub.add_parser(
         "update",
-        help="Pull the latest CLI from GitHub and reinstall.",
+        help="Reinstall the latest council-gate from PyPI.",
     )
 
     init = sub.add_parser(

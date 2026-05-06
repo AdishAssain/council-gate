@@ -14,21 +14,21 @@ If `$ARGUMENTS` is empty or the file does not exist, ask the user for the path. 
 Run this Bash command (silently — capture output only):
 
 ```
-uvx --from git+https://github.com/AdishAssain/council-gate council-gate doctor
+uvx council-gate doctor
 ```
 
 Read the output. If it reports `OpenRouter key: missing`, then **before** running the review:
 1. Ask the user (in chat): "I need an OpenRouter API key to run the council. Get one at https://openrouter.ai/keys (free tier works) and paste it here."
 2. When they paste the key (starts with `sk-or-v1-...`), run:
    ```
-   uvx --from git+https://github.com/AdishAssain/council-gate council-gate init --openrouter-key <THEIR_KEY>
+   uvx council-gate init --openrouter-key <THEIR_KEY>
    ```
-3. Confirm setup with `council-gate doctor` again before continuing.
+3. Confirm setup with `uvx council-gate doctor` again before continuing.
 
 ## Step 3 — run the review
 
 ```
-uvx --from git+https://github.com/AdishAssain/council-gate council-gate review "$ARGUMENTS"
+uvx council-gate review "$ARGUMENTS"
 ```
 
 The command auto-saves a markdown report to the current directory (`./council-gate-<stem>-<timestamp>.md`) and prints a one-line verdict to stderr.
@@ -42,6 +42,8 @@ After the command completes successfully, find the saved report file (it'll matc
 3. Tell them where the full report is saved so they can open it.
 
 If the command fails, surface the friendly error message verbatim — `council-gate` is designed to print actionable plain-English errors. Don't translate or re-interpret; the tool's own messages are the answer.
+
+> Note: every council-gate invocation in this command goes through `uvx council-gate …` so it works whether or not the user has `council-gate` on PATH. Don't drop `uvx` from any of these calls.
 
 ## Notes
 

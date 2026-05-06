@@ -16,7 +16,7 @@ which council-gate >/dev/null 2>&1 && echo CLI_OK || echo CLI_MISSING
 test -f ~/.config/council-gate/.env && echo CONFIG_OK || echo CONFIG_MISSING
 ```
 
-If `CLI_MISSING`: tell the user to run `uv tool install git+https://github.com/AdishAssain/council-gate` (or `pipx install council-gate` once it's on PyPI), then retry the command.
+If `CLI_MISSING`: tell the user to run `uv tool install council-gate` (or `pip install council-gate` / `pipx install council-gate`), then retry the command.
 
 If `CONFIG_MISSING`: run `council-gate init` for them, then ask them to add their `OPENROUTER_API_KEY` to `~/.config/council-gate/.env` and retry.
 

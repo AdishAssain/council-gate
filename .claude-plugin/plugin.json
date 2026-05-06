@@ -1,6 +1,6 @@
 {
   "name": "council-gate",
-  "version": "1.2.1",
+  "version": "1.2.3",
   "description": "Cross-model adversarial review of docs, proposals, and PR diffs. Runs your artifact past frontier LLMs from different providers, measures disagreement, and routes consensus vs disagreement to an explicit escalation channel.",
   "author": {
     "name": "council-gate contributors",

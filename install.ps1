@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "git+https://github.com/AdishAssain/council-gate"
+$Package = "council-gate"
 
 function Say($msg)  { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host "[ok] $msg" -ForegroundColor Green }
@@ -26,8 +26,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Ok "uv already installed: $((Get-Command uv).Source)"
 }
 
-Say "Installing council-gate from $Repo"
-uv tool install --force $Repo
+Say "Installing $Package from PyPI"
+uv tool install --force $Package
 Ok "council-gate installed"
 
 Say "Updating shell config so council-gate is on PATH in new sessions"

@@ -21,15 +21,17 @@ Trigger on phrases like:
 Use the `/review` slash command if available, or directly run via Bash:
 
 ```
-uvx --from git+https://github.com/AdishAssain/council-gate council-gate review <PATH>
+uvx council-gate review <PATH>
 ```
 
 ## First-run setup
 
-If `council-gate doctor` reports the OpenRouter key is missing:
+If `uvx council-gate doctor` reports the OpenRouter key is missing:
 1. Tell the user: "I need an OpenRouter API key to run the council. Get one at https://openrouter.ai/keys (free tier works for cheap models)."
-2. When they paste a key, run `council-gate init --openrouter-key <key>` to write it to `~/.config/council-gate/.env`.
-3. Re-run `council-gate doctor` to confirm.
+2. When they paste a key, run `uvx council-gate init --openrouter-key <key>` to write it to `~/.config/council-gate/.env`.
+3. Re-run `uvx council-gate doctor` to confirm.
+
+Always invoke via `uvx council-gate …` (not bare `council-gate …`) inside the plugin context — the user may not have the binary on their PATH.
 
 ## Reading the output
 

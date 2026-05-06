@@ -10,7 +10,7 @@
 
 set -eu
 
-REPO="git+https://github.com/AdishAssain/council-gate"
+PACKAGE="council-gate"
 LOCAL_BIN="$HOME/.local/bin"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -26,8 +26,8 @@ else
   ok "uv already installed: $(command -v uv)"
 fi
 
-say "Installing council-gate from $REPO"
-uv tool install --force "$REPO"
+say "Installing $PACKAGE from PyPI"
+uv tool install --force "$PACKAGE"
 ok "council-gate installed to $LOCAL_BIN/council-gate"
 
 # Ensure PATH is permanent in new shells (writes to .zshrc/.bashrc/.config/fish/...)
