@@ -69,6 +69,19 @@ council-gate review path/to/artifact.md          # auto-saves clean markdown rep
 
 That's it. The report lands at `./council-gate-<artifact>-<timestamp>.md` ready to open in any markdown viewer (Cursor, VS Code, GitHub).
 
+### Review modes
+
+Pass `--mode` to pick the bundled review prompt that matches your artifact. Different modes change *what the council looks for*, not how it's measured.
+
+| `--mode` | Use it for | Focus |
+|---|---|---|
+| `eng` (default) | engineering specs, PR diffs, design docs, plans | correctness, edge cases, failure modes, missing-data handling, security boundaries, silent-failure paths |
+| `proposal` | grant proposals, strategy docs, pitches, research statements | claim/evidence asymmetry, hidden assumptions, audience fit, vague language, missing failure modes |
+| `analysis` | data analyses, research findings, statistical claims | sample bias, confounders, missing-data handling, unsupported causal claims, statistical pitfalls, reproducibility |
+| `general` | other / mixed / fallback | factual errors, internal inconsistencies, unsupported claims, hidden assumptions |
+
+For fully bespoke prompts: `--prompt path/to/your.md`.
+
 ### Other commands
 
 | Command | What it does |
