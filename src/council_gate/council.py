@@ -45,12 +45,14 @@ class Council:
 
     @staticmethod
     def _run_one(seat: Provider, artifact: str, prompt: str) -> Review:
-        # Adapter trust boundary: surface the error on Review.error rather than
-        # crashing the whole council. Logged + visible, not swallowed.
+        # Adapter trust boundary: surface the error on Review.error.
+        # Logged at DEBUG only — the user-facing surfaces are the per-seat
+        # ✗ progress marker and the "Errored seats" table in the saved
+        # report. Duplicating that as a WARNING was noise.
         try:
             return seat.review(artifact, prompt)
         except Exception as e:
-            log.warning("adapter %s raised: %s", seat.model_id, e)
+            log.debug("adapter %s raised: %s", seat.model_id, e)
             return Review(
                 model_id=seat.model_id,
                 provider=seat.provider,

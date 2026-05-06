@@ -30,6 +30,7 @@ dev = [
     "ruff>=0.6",
     "black>=24.0",
     "mypy>=1.10",
+    "pre-commit>=3.5",
 ]
 
 [project.scripts]

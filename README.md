@@ -59,16 +59,34 @@ In practice, low-disagreement output ships with a checklist (`novelty`, `edge ca
 
 ## Quickstart
 
-Requires Python ≥ 3.12.
+Requires Python ≥ 3.12 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 uv tool install git+https://github.com/AdishAssain/council-gate
-council-gate init                     # writes ~/.config/council-gate/.env
-$EDITOR ~/.config/council-gate/.env   # set OPENROUTER_API_KEY
-council-gate review path/to/spec.md
+council-gate init --openrouter-key sk-or-v1-…   # interactive prompt if you skip the flag
+council-gate review path/to/artifact.md          # auto-saves clean markdown report to cwd
 ```
 
-Config lives in `~/.config/council-gate/.env` (XDG-compliant); `council-gate` never reads from the working directory. Nothing lands in your repo.
+That's it. The report lands at `./council-gate-<artifact>-<timestamp>.md` ready to open in any markdown viewer (Cursor, VS Code, GitHub).
+
+### Other commands
+
+| Command | What it does |
+|---|---|
+| `council-gate init [--openrouter-key …]` | Writes `~/.config/council-gate/.env`. Interactive prompt for the key. Offers to add `~/.local/bin` to your PATH if missing. |
+| `council-gate review <file> [--mode {eng,proposal,analysis,general}]` | Runs the council on the artifact. Auto-saves a clean markdown report. `--no-save` for stdout-only; `--print` for both. |
+| `council-gate doctor` | Diagnoses common setup issues: config present, key set, PATH on, codex CLI available. |
+| `council-gate update` | Pulls the latest from GitHub and reinstalls. One-liner instead of remembering the long uv invocation. |
+
+### Configuration
+
+Lives at `~/.config/council-gate/.env` (XDG-compliant). `council-gate` never reads from the working directory; nothing lands in your repo.
+
+Three keys matter:
+
+- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** (Haiku, GPT-mini, Gemini Flash, Llama, Qwen, DeepSeek) — works on a $1-2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
+- `COUNCIL_GENERATOR_PROVIDER` — slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. The corresponding seats are excluded from the council.
+- `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default 0.35.
 
 For a council seat that includes the OpenAI Codex CLI, install and authenticate `codex` separately ([openai/codex](https://github.com/openai/codex)).
 
@@ -118,8 +136,11 @@ To bypass both, pass `--skip-redaction-check`. Don't use this flag unless you've
 git clone https://github.com/AdishAssain/council-gate.git
 cd council-gate
 uv sync --extra dev
+uv run pre-commit install      # runs ruff + pytest before each commit
 uv run pytest
 ```
+
+CI runs `ruff check`, `pytest`, and a wheel-build sanity check on every push and PR (`.github/workflows/test.yml`). The pre-commit hooks catch most failures locally before they hit CI.
 
 ## License
 

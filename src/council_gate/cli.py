@@ -114,16 +114,144 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     target.write_text(template)
     target.chmod(0o600)
-    print(f"wrote {target} (chmod 600)")
+    print(f"Saved your settings to {target}")
     if key:
-        print("OpenRouter key set. Try: council-gate review <some-file>.md")
+        print("OpenRouter key is set. Try a review:")
+        print("  council-gate review <some-file>.md")
     else:
         print(
-            "No key set. Edit the file with one of:\n"
-            f"  open -e {target}        # TextEdit (macOS)\n"
-            f"  nano {target}           # terminal editor\n"
+            "\nNo key set yet. Add one any time with:\n"
+            f"  council-gate init --force --openrouter-key <your-key>\n"
+            f"Or open the file directly:\n"
+            f"  open -e {target}        # macOS TextEdit\n"
+            f"  nano {target}           # terminal\n"
             f"  code {target}           # VS Code"
         )
+    _check_path_or_advise()
+    return 0
+
+
+_RC_PATHS = {
+    "zsh": Path.home() / ".zshrc",
+    "bash": Path.home() / ".bashrc",
+}
+
+
+def _check_path_or_advise(interactive: bool = True) -> None:
+    """If ~/.local/bin isn't on PATH, offer to add it to the user's rc file."""
+    local_bin = str(Path.home() / ".local" / "bin")
+    if local_bin in os.environ.get("PATH", "").split(os.pathsep):
+        return
+    shell = os.environ.get("SHELL", "").rsplit("/", 1)[-1]
+    rc_path = _RC_PATHS.get(shell)
+    export_line = 'export PATH="$HOME/.local/bin:$PATH"'
+
+    if rc_path is None:
+        # Unknown shell — print manual instructions
+        print(
+            f"\nHeads up: ~/.local/bin isn't on your PATH. Add this line to "
+            f"your shell's rc file, then start a new terminal:\n"
+            f"  {export_line}"
+        )
+        return
+
+    # Known shell — offer to do it for the user.
+    if interactive and sys.stdin.isatty():
+        print(
+            "\n~/.local/bin isn't on your PATH yet, so `council-gate` won't "
+            "work in a fresh terminal."
+        )
+        try:
+            ans = input(f"Add '{export_line}' to {rc_path}? [Y/n] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        if ans in ("", "y", "yes"):
+            _append_path_to_rc(rc_path, export_line)
+            return
+
+    # Either non-interactive, declined, or unknown shell
+    print(
+        f"\nManual fix:\n"
+        f"  echo '{export_line}' >> {rc_path}\n"
+        f"  source {rc_path}"
+    )
+
+
+def _append_path_to_rc(rc_path: Path, export_line: str) -> None:
+    """Append the PATH export to the rc file if it isn't already there."""
+    existing = rc_path.read_text(encoding="utf-8") if rc_path.exists() else ""
+    if export_line in existing:
+        print(f"  (already present in {rc_path}, nothing to do)")
+        return
+    block = (
+        f"\n# Added by council-gate init\n"
+        f"{export_line}\n"
+    )
+    with open(rc_path, "a", encoding="utf-8") as fh:
+        fh.write(block)
+    print(f"  ✓ added to {rc_path}")
+    print(f"  Run `source {rc_path}` (or open a new terminal) to use it now.")
+
+
+def _cmd_update() -> int:
+    """Reinstall the CLI from the latest GitHub HEAD.
+
+    Equivalent to: uv tool install --reinstall --force git+https://github.com/AdishAssain/council-gate
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("uv") is None:
+        print(
+            "council-gate update: `uv` not found on PATH. Install uv first:\n"
+            "  curl -LsSf https://astral.sh/uv/install.sh | sh",
+            file=sys.stderr,
+        )
+        return 2
+
+    cmd = [
+        "uv", "tool", "install", "--reinstall", "--force",
+        "git+https://github.com/AdishAssain/council-gate",
+    ]
+    print(f"running: {' '.join(cmd)}\n")
+    return subprocess.run(cmd).returncode
+
+
+def _cmd_doctor() -> int:
+    """Diagnose common setup issues and print a clean status block."""
+    import shutil
+
+    cfg = _config_path()
+    print("council-gate doctor\n")
+
+    # Config file
+    if cfg.exists():
+        print(f"  ✓ config: {cfg}")
+        try:
+            content = cfg.read_text(encoding="utf-8")
+            has_key = bool(
+                re.search(r"^OPENROUTER_API_KEY=\S+", content, flags=re.MULTILINE)
+            )
+            print(f"  {'✓' if has_key else '✗'} OpenRouter key: {'set' if has_key else 'missing'}")
+        except OSError:
+            print("  ✗ config: present but unreadable")
+    else:
+        print(f"  ✗ config: not found at {cfg} — run `council-gate init`")
+
+    # PATH
+    local_bin = str(Path.home() / ".local" / "bin")
+    on_path = local_bin in os.environ.get("PATH", "").split(os.pathsep)
+    print(f"  {'✓' if on_path else '✗'} ~/.local/bin on PATH: {'yes' if on_path else 'no'}")
+    if not on_path:
+        _check_path_or_advise()
+
+    # codex CLI (optional)
+    codex = shutil.which("codex")
+    if codex:
+        print(f"  ✓ codex CLI: {codex} (extra council seat available)")
+    else:
+        print("  · codex CLI: not installed (optional — adds an extra council seat)")
+
     return 0
 
 
@@ -355,6 +483,16 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="council-gate")
     sub = p.add_subparsers(dest="command", required=True)
 
+    sub.add_parser(
+        "doctor",
+        help="Diagnose common setup issues (config, PATH, codex CLI).",
+    )
+
+    sub.add_parser(
+        "update",
+        help="Pull the latest CLI from GitHub and reinstall.",
+    )
+
     init = sub.add_parser(
         "init",
         help="Write ~/.config/council-gate/.env. Prompts for OpenRouter key if interactive.",
@@ -423,6 +561,10 @@ def main() -> int:
         logging.getLogger("httpx").setLevel(logging.INFO)
     if args.command == "init":
         return _cmd_init(args)
+    if args.command == "doctor":
+        return _cmd_doctor()
+    if args.command == "update":
+        return _cmd_update()
     if args.command == "review":
         return _cmd_review(args)
     return 2

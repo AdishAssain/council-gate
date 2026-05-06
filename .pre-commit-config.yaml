@@ -1,0 +1,21 @@
+# Run on every commit. Install once: `uv run pre-commit install`
+# (pre-commit is in the dev extras: `uv sync --extra dev` already pulls it.)
+#
+# Mirrors what CI runs. Catching failures here prevents red-X commits.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

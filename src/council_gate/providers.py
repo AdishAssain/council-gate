@@ -140,14 +140,14 @@ class OpenRouterProvider:
     def _friendly_http_error(resp: httpx.Response) -> str:
         code = resp.status_code
         canonical = {
-            401: "401 Unauthorized — OPENROUTER_API_KEY rejected. Re-check the key at https://openrouter.ai/keys.",
-            402: "402 Payment Required — likely insufficient OpenRouter balance for this model. Top up or drop the model from COUNCIL_MODELS.",
-            403: "403 Forbidden — your account may not have access to this model.",
-            404: "404 Not Found — model id misspelled? Check https://openrouter.ai/models.",
-            429: "429 Rate Limited — back off, or pick less popular models.",
-            500: "500 Server Error from OpenRouter.",
-            502: "502 Bad Gateway from OpenRouter.",
-            503: "503 Service Unavailable — OpenRouter or upstream provider is down.",
+            401: "Sign-in failed. Check your OpenRouter key: https://openrouter.ai/keys",
+            402: "Low OpenRouter balance for this model. Top up or skip it: https://openrouter.ai/credits",
+            403: "This model isn't on your OpenRouter plan.",
+            404: "Model id not found: https://openrouter.ai/models",
+            429: "Rate limited. Try again shortly.",
+            500: "OpenRouter hiccup. Usually clears in a minute.",
+            502: "OpenRouter hiccup. Usually clears in a minute.",
+            503: "OpenRouter briefly unavailable.",
         }
         if code in canonical:
             return canonical[code]

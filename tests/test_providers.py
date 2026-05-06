@@ -69,7 +69,7 @@ def test_openrouter_4xx_raises_with_friendly_message(monkeypatch):
     _set_key(monkeypatch)
     _mock_post(monkeypatch, {"error": "unauthorized"}, status=401)
     p = OpenRouterProvider("openai/gpt-test")
-    with pytest.raises(RuntimeError, match="401 Unauthorized"):
+    with pytest.raises(RuntimeError, match="Sign-in failed"):
         p.review("artifact", "prompt")
 
 
@@ -77,7 +77,7 @@ def test_openrouter_402_friendly_message(monkeypatch):
     _set_key(monkeypatch)
     _mock_post(monkeypatch, {"error": "balance"}, status=402)
     p = OpenRouterProvider("openai/gpt-test")
-    with pytest.raises(RuntimeError, match="Payment Required"):
+    with pytest.raises(RuntimeError, match="Low OpenRouter balance"):
         p.review("artifact", "prompt")
 
 
