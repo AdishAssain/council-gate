@@ -10,7 +10,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from council_gate.council import Council
-from council_gate.escalation import format_escalation
 from council_gate.gate import (
     CORRELATED_BLINDSPOT_DIMENSIONS,
     EntropyGate,
@@ -171,84 +170,186 @@ def _cmd_review(args: argparse.Namespace) -> int:
     reviews = council.run(artifact_text, system_prompt)
     gate = EntropyGate(threshold=args.threshold)
     v = gate.evaluate(reviews)
-    _render_markdown(args, v, reviews, redaction_count)
+
+    # Build the markdown report into a string.
+    report = _build_markdown_report(args, v, reviews, redaction_count)
+
+    # Auto-save unless --no-save. Filename is timestamp-tagged so successive
+    # runs don't clobber each other.
+    if not args.no_save:
+        from datetime import datetime
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        out_path = Path.cwd() / f"council-gate-{args.artifact.stem}-{stamp}.md"
+        out_path.write_text(report, encoding="utf-8")
+        print(f"\nreport saved → {out_path}", file=sys.stderr)
+        print(f"verdict: {v.verdict.value}  ·  disagreement: {v.disagreement:.2f}", file=sys.stderr)
+
+    if args.print or args.no_save:
+        # Always print to stdout if --print was passed, or if save was disabled.
+        sys.stdout.write(report)
+
     return 0
 
 
-def _render_markdown(
+def _build_markdown_report(
     args: argparse.Namespace,
     v: GateVerdict,
     reviews: list[Review],
     redaction_count: int,
-) -> None:
-    """Print a markdown-formatted report to stdout.
+) -> str:
+    """Markdown report aimed at a non-coder PM / Director of AI reader.
 
-    Designed so `council-gate review … | tee output.md` produces a file
-    that renders cleanly in any markdown viewer (Cursor, VS Code, GitHub).
+    Plain-English verdict, TL;DR, findings, errored seats, next steps.
+    No jargon ("entropy gate", "asymmetric"); no stack traces.
     """
     from datetime import datetime
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as pkg_version
 
-    print(f"# council-gate review — {args.artifact.name}\n")
-    print(f"- **Verdict:** `{v.verdict.value}`")
-    print(f"- **Disagreement:** {v.disagreement:.3f} (threshold {args.threshold:.2f})")
-    print(f"- **Reviewers:** {v.reviewer_count} succeeded out of {len(reviews)}")
-    print(f"- **Mode:** `{args.mode}`")
-    print(
-        f"- **Run at:** {datetime.now(UTC).isoformat(timespec='seconds')}"
-    )
-    if redaction_count:
-        print(
-            f"- **Redaction:** {redaction_count} secret-shaped substring(s) "
-            f"scrubbed from artifact before dispatch"
-        )
-    print(f"\n> {v.reason}\n")
+    try:
+        cg_version = pkg_version("council-gate")
+    except PackageNotFoundError:
+        cg_version = "unknown"
+
+    ok = [r for r in reviews if r.ok]
+    failed = [r for r in reviews if not r.ok]
+    out: list[str] = []
+
+    # ─── Header ──────────────────────────────────────────────────────────
+    out.append(f"# Council review — `{args.artifact.name}`\n")
 
     if v.verdict == Verdict.ESCALATE:
-        print("## Escalation message\n")
-        print(
-            "Paste this into your team channel (PR comment, Slack, WhatsApp). "
-            "Verbatim — the divergence detail is the value.\n"
+        headline = (
+            "**The council disagreed.** Reviewers did not converge on a single set "
+            "of findings. **Read the individual reviews below before acting.**"
         )
-        print(format_escalation(args.artifact.name, v, reviews, args.threshold))
-        print()
     elif v.verdict == Verdict.CONSENSUS_CHECK:
-        print("## Verify before trusting consensus\n")
-        print(
-            "Consensus reached, but the gate is asymmetric: low disagreement is "
-            "treated as *suspect consensus*, not approval. Frontier models share "
-            "blindspots. Spot-check the council's output against these dimensions:\n"
+        headline = (
+            "**The council reached consensus** — but consensus is not approval. "
+            "Frontier AI models often share blindspots, so use the verification "
+            "checklist below before treating this as a clean review."
+        )
+    else:
+        headline = (
+            "**Inconclusive review.** Too few reviewers returned usable output to "
+            "form a verdict. See the *Errored seats* section for details."
+        )
+    out.append(f"{headline}\n")
+
+    # ─── TL;DR table ─────────────────────────────────────────────────────
+    out.append("## At a glance\n")
+    out.append("| | |")
+    out.append("|---|---|")
+    out.append(f"| **Verdict** | `{v.verdict.value}` |")
+    out.append(f"| **Reviewers** | {len(ok)} returned reviews · {len(failed)} errored |")
+    out.append(
+        f"| **Disagreement** | {v.disagreement:.2f} on a 0–1 scale "
+        f"(threshold {args.threshold:.2f}; higher = more divergence) |"
+    )
+    out.append(f"| **Mode** | {args.mode} |")
+    if redaction_count:
+        out.append(
+            f"| **Privacy** | {redaction_count} secret-shaped substring(s) were "
+            f"redacted from the artifact before it reached any model |"
+        )
+    out.append("")
+
+    # ─── Successful reviews ──────────────────────────────────────────────
+    if ok:
+        out.append("## What each reviewer said\n")
+        for r in ok:
+            out.append(f"### {r.model_id}\n")
+            if r.findings:
+                out.append("| Severity | Where | Issue |")
+                out.append("|---|---|---|")
+                for f in r.findings:
+                    loc = f.location or "—"
+                    summary = f.summary.replace("|", "\\|")
+                    out.append(
+                        f"| **{f.severity.upper()}** | `{loc}` | {summary} |"
+                    )
+                out.append("")
+            else:
+                out.append("_(reviewer returned free-prose feedback rather than tagged findings)_\n")
+            if r.raw_text and not r.findings:
+                # Only show raw text when no parsed findings — otherwise the table is the answer
+                out.append("<details>\n<summary>Raw response</summary>\n")
+                out.append("\n```")
+                snippet = r.raw_text[:2000]
+                out.append(snippet)
+                if len(r.raw_text) > 2000:
+                    out.append(f"\n\n[output truncated; {len(r.raw_text) - 2000} more characters]")
+                out.append("```\n")
+                out.append("</details>\n")
+            elif r.raw_text:
+                out.append("<details>\n<summary>Raw response (full text the model returned)</summary>\n")
+                out.append("\n```")
+                snippet = r.raw_text[:2000]
+                out.append(snippet)
+                if len(r.raw_text) > 2000:
+                    out.append(f"\n\n[output truncated; {len(r.raw_text) - 2000} more characters]")
+                out.append("```\n")
+                out.append("</details>\n")
+
+    # ─── Verdict-specific guidance ───────────────────────────────────────
+    if v.verdict == Verdict.CONSENSUS_CHECK:
+        out.append("## Verify before trusting consensus\n")
+        out.append(
+            "Spot-check the council's output against these dimensions, where "
+            "frontier AI models statistically tend to agree but be wrong together:\n"
         )
         for d in CORRELATED_BLINDSPOT_DIMENSIONS:
-            print(f"- {d}")
-        print()
+            out.append(f"- {d}")
+        out.append("")
+    elif v.verdict == Verdict.ESCALATE:
+        out.append("## What to do now\n")
+        out.append(
+            "1. Skim the findings table for each reviewer above.\n"
+            "2. Look for any concern flagged by **two or more** reviewers — those are higher-signal.\n"
+            "3. Open the artifact yourself and sanity-check whether each finding holds.\n"
+            "4. If the disagreement reflects different valid framings, decide which framing matches the artifact's actual purpose.\n"
+        )
 
-    print("## Per-reviewer output\n")
-    for r in reviews:
-        status = "✓" if r.ok else "✗"
-        print(f"### {status} `{r.model_id}` ({r.provider})\n")
-        if r.error:
-            print(f"**Error:** `{r.error}`\n")
-            continue
-        if r.findings:
-            print("**Parsed findings:**\n")
-            for f in r.findings:
-                loc = f" `{f.location}`" if f.location else ""
-                print(f"- **{f.severity.upper()}**{loc} — {f.summary}")
-            print()
-        print("**Raw output:**\n")
-        print("```")
-        print(r.raw_text[:1500])
-        if len(r.raw_text) > 1500:
-            print(
-                f"\n[output truncated; {len(r.raw_text) - 1500} more chars not shown]"
-            )
-        print("```\n")
+    # ─── Errored seats ───────────────────────────────────────────────────
+    if failed:
+        out.append("## Errored seats (no review returned)\n")
+        out.append("| Seat | Reason |")
+        out.append("|---|---|")
+        for r in failed:
+            reason = (r.error or "unknown error").replace("|", "\\|")
+            # Strip the model_id prefix from the reason since it's in the row label
+            if reason.startswith(f"{r.model_id}: "):
+                reason = reason[len(r.model_id) + 2 :]
+            # Truncate long stderr / tracebacks
+            reason = reason if len(reason) < 200 else reason[:200] + "…"
+            out.append(f"| `{r.model_id}` | {reason} |")
+        out.append("")
+        out.append(
+            "If the same provider keeps erroring (e.g. 402 Payment Required), "
+            "either top up your OpenRouter balance or remove that model from "
+            "`COUNCIL_MODELS` in `~/.config/council-gate/.env`.\n"
+        )
+
+    # ─── Run details (non-essential, last) ───────────────────────────────
+    out.append("---")
+    out.append("\n_Run details_\n")
+    out.append(f"- Tool: `council-gate v{cg_version}`")
+    out.append(
+        f"- Run at: {datetime.now(UTC).isoformat(timespec='seconds')}"
+    )
+    out.append(f"- Threshold: {args.threshold:.2f}")
+    out.append(f"- Reason: {v.reason}")
+    out.append("")
+    return "\n".join(out)
 
 
 def main() -> int:
+    # Friendly default: WARN, no httpx noise. --verbose lifts to DEBUG.
     logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+        level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s"
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     _load_env()
 
     p = argparse.ArgumentParser(prog="council-gate")
@@ -299,8 +400,27 @@ def main() -> int:
         help="Bypass secret-bearing-filename refusal and inline redaction. "
         "Only use if you're sure the artifact contains no secrets.",
     )
+    review.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Skip auto-saving the markdown report to a file in cwd. "
+        "Output goes to stdout instead.",
+    )
+    review.add_argument(
+        "--print",
+        action="store_true",
+        help="In addition to saving the report, also print it to stdout.",
+    )
+    review.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show DEBUG-level logs (HTTP requests, parsing diagnostics).",
+    )
 
     args = p.parse_args()
+    if getattr(args, "verbose", False):
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("httpx").setLevel(logging.INFO)
     if args.command == "init":
         return _cmd_init(args)
     if args.command == "review":

@@ -41,7 +41,10 @@ def parse_findings(text: str) -> list[Finding]:
             Finding(severity=sev, summary=m.group("desc"), location=m.group("loc"))
         )
     if not out:
-        log.warning(
+        # Not a warning — many models return free-prose findings even with the
+        # severity-tag instruction. Raw text still surfaces on Review.raw_text
+        # and the gate uses it. Debug-level only.
+        log.debug(
             "parse_findings: no severity-tagged lines found (%d chars input)", len(text)
         )
     return out

@@ -61,6 +61,7 @@ class CodexProvider:
                 "codex", "exec", prompt,
                 "-C", str(root),
                 "-s", "read-only",
+                "--skip-git-repo-check",  # required when running in a tempdir
                 "-c", 'model_reasoning_effort="high"',
             ],
             capture_output=True,
@@ -110,7 +111,10 @@ class OpenRouterProvider:
             "X-Title": "council-gate",
         }
         resp = httpx.post(self.BASE_URL, headers=headers, json=payload, timeout=self._timeout)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Friendly error mapping; the council surfaces this on Review.error.
+            short = self._friendly_http_error(resp)
+            raise RuntimeError(f"{self.model_id}: {short}")
         body = resp.json()
         # OpenRouter sometimes returns 200 with {"error": ...} (rate limit,
         # model unavailable, content filter). Detect those before assuming
@@ -131,3 +135,25 @@ class OpenRouterProvider:
             findings=parse_findings(raw),
             raw_text=raw,
         )
+
+    @staticmethod
+    def _friendly_http_error(resp: httpx.Response) -> str:
+        code = resp.status_code
+        canonical = {
+            401: "401 Unauthorized — OPENROUTER_API_KEY rejected. Re-check the key at https://openrouter.ai/keys.",
+            402: "402 Payment Required — likely insufficient OpenRouter balance for this model. Top up or drop the model from COUNCIL_MODELS.",
+            403: "403 Forbidden — your account may not have access to this model.",
+            404: "404 Not Found — model id misspelled? Check https://openrouter.ai/models.",
+            429: "429 Rate Limited — back off, or pick less popular models.",
+            500: "500 Server Error from OpenRouter.",
+            502: "502 Bad Gateway from OpenRouter.",
+            503: "503 Service Unavailable — OpenRouter or upstream provider is down.",
+        }
+        if code in canonical:
+            return canonical[code]
+        try:
+            body = resp.json()
+            msg = body.get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        return f"HTTP {code}{f' — {msg}' if msg else ''}"

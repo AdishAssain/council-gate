@@ -16,16 +16,20 @@ def format_escalation(
     reviews: list[Review],
     threshold: float,
 ) -> str:
-    reviewer_summary = ", ".join(f"{r.provider} ({r.model_id})" for r in reviews)
+    # Only successful reviewers contribute to the escalation body — failed
+    # seats have nothing to add and pollute the output with empty entries.
+    ok = [r for r in reviews if r.ok]
+    reviewer_summary = ", ".join(f"{r.provider} ({r.model_id})" for r in ok)
     blocks: list[str] = []
-    for r in reviews:
+    for r in ok:
         if r.findings:
             bullets = "\n  ".join(
                 f"- {f.severity.upper()}: {f.summary}" for f in r.findings
             )
         else:
-            bullets = f"- (no parsed findings; raw): {r.raw_text[:200]}"
-        blocks.append(f"**{r.provider}**\n  {bullets}")
+            snippet = r.raw_text[:300].strip() or "(empty response)"
+            bullets = f"- {snippet}"
+        blocks.append(f"**{r.provider} ({r.model_id})**\n  {bullets}")
     return _load_template().substitute(
         artifact_name=artifact_name,
         disagreement=f"{verdict.disagreement:.2f}",

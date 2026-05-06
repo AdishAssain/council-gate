@@ -65,11 +65,19 @@ def test_openrouter_malformed_response(monkeypatch):
         p.review("artifact", "prompt")
 
 
-def test_openrouter_4xx_raises_via_raise_for_status(monkeypatch):
+def test_openrouter_4xx_raises_with_friendly_message(monkeypatch):
     _set_key(monkeypatch)
     _mock_post(monkeypatch, {"error": "unauthorized"}, status=401)
     p = OpenRouterProvider("openai/gpt-test")
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(RuntimeError, match="401 Unauthorized"):
+        p.review("artifact", "prompt")
+
+
+def test_openrouter_402_friendly_message(monkeypatch):
+    _set_key(monkeypatch)
+    _mock_post(monkeypatch, {"error": "balance"}, status=402)
+    p = OpenRouterProvider("openai/gpt-test")
+    with pytest.raises(RuntimeError, match="Payment Required"):
         p.review("artifact", "prompt")
 
 
