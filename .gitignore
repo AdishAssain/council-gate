@@ -20,3 +20,6 @@ build/
 
 notes/
 dist/
+
+CLAUDE.md
+.claude/

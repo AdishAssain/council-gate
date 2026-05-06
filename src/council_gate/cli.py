@@ -131,9 +131,12 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-_RC_PATHS = {
-    "zsh": Path.home() / ".zshrc",
-    "bash": Path.home() / ".bashrc",
+# Both interactive (rc) and login (profile) files — macOS Terminal.app opens login
+# shells by default, which read .zprofile/.bash_profile, not .zshrc/.bashrc.
+# Writing to both is what makes the binary survive a terminal restart.
+_SHELL_FILES = {
+    "zsh": (Path.home() / ".zshrc", Path.home() / ".zprofile"),
+    "bash": (Path.home() / ".bashrc", Path.home() / ".bash_profile"),
 }
 
 
@@ -143,37 +146,37 @@ def _check_path_or_advise(interactive: bool = True) -> None:
     if local_bin in os.environ.get("PATH", "").split(os.pathsep):
         return
     shell = os.environ.get("SHELL", "").rsplit("/", 1)[-1]
-    rc_path = _RC_PATHS.get(shell)
+    rc_files = _SHELL_FILES.get(shell)
     export_line = 'export PATH="$HOME/.local/bin:$PATH"'
 
-    if rc_path is None:
-        # Unknown shell — print manual instructions
+    if rc_files is None:
         print(
             f"\nHeads up: ~/.local/bin isn't on your PATH. Add this line to "
-            f"your shell's rc file, then start a new terminal:\n"
+            f"your shell's startup file, then open a new terminal:\n"
             f"  {export_line}"
         )
         return
 
-    # Known shell — offer to do it for the user.
     if interactive and sys.stdin.isatty():
         print(
             "\n~/.local/bin isn't on your PATH yet, so `council-gate` won't "
             "work in a fresh terminal."
         )
+        target_list = " and ".join(str(p) for p in rc_files)
         try:
-            ans = input(f"Add '{export_line}' to {rc_path}? [Y/n] ").strip().lower()
+            ans = input(f"Add '{export_line}' to {target_list}? [Y/n] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             ans = "n"
         if ans in ("", "y", "yes"):
-            _append_path_to_rc(rc_path, export_line)
+            for rc in rc_files:
+                _append_path_to_rc(rc, export_line)
             return
 
-    # Either non-interactive, declined, or unknown shell
+    primary = rc_files[0]
     print(
         f"\nManual fix:\n"
-        f"  echo '{export_line}' >> {rc_path}\n"
-        f"  source {rc_path}"
+        f"  echo '{export_line}' >> {primary}\n"
+        f"  source {primary}"
     )
 
 
@@ -245,6 +248,16 @@ def _cmd_doctor() -> int:
     if not on_path:
         _check_path_or_advise()
 
+    # council-gate binary location (helps debug "it disappeared" issues)
+    cg_bin = shutil.which("council-gate")
+    if cg_bin:
+        print(f"  ✓ council-gate binary: {cg_bin}")
+    else:
+        print(
+            "  ✗ council-gate binary: not on PATH\n"
+            "       (you're running via `python -m` or an absolute path right now)"
+        )
+
     # codex CLI (optional)
     codex = shutil.which("codex")
     if codex:
@@ -265,7 +278,18 @@ def _cmd_review(args: argparse.Namespace) -> int:
         except RefusedFilename as e:
             print(f"council-gate: {e}", file=sys.stderr)
             return 3
-    raw_text = args.artifact.read_text(encoding="utf-8")
+    from .ingest import IngestError, load_artifact
+    try:
+        raw_text = load_artifact(args.artifact)
+    except IngestError as e:
+        print(f"council-gate: {e}", file=sys.stderr)
+        return 2
+
+    if args.mode is None:
+        # Smart default: docx/pdf/odt/rtf/epub almost always means a written
+        # proposal/report, not engineering. Source code & diffs default to eng.
+        suffix = args.artifact.suffix.lower()
+        args.mode = "proposal" if suffix in {".docx", ".doc", ".pdf", ".odt", ".rtf", ".epub"} else "eng"
     artifact_text, redaction_count = (
         (raw_text, 0) if args.skip_redaction_check else redact(raw_text)
     )
@@ -513,8 +537,8 @@ def main() -> int:
     review.add_argument(
         "--mode",
         choices=BUNDLED_MODES,
-        default="eng",
-        help="Bundled review prompt to use (default: eng).",
+        default=None,
+        help="Bundled review prompt (auto: 'proposal' for .docx/.pdf, 'eng' otherwise).",
     )
     review.add_argument(
         "--prompt",
@@ -570,5 +594,29 @@ def main() -> int:
     return 2
 
 
+def _entrypoint() -> int:
+    """Wrap main() so non-engineer users never see a Python traceback.
+
+    Tracebacks are still available with --verbose for debugging.
+    """
+    try:
+        return main()
+    except KeyboardInterrupt:
+        print("\ncouncil-gate: interrupted.", file=sys.stderr)
+        return 130
+    except SystemExit:
+        raise
+    except Exception as e:
+        if "--verbose" in sys.argv:
+            raise
+        print(
+            f"council-gate: unexpected error — {type(e).__name__}: {e}\n"
+            "Run again with --verbose to see the full traceback, "
+            "or `council-gate doctor` to check your setup.",
+            file=sys.stderr,
+        )
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_entrypoint())

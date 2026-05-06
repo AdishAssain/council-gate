@@ -1,8 +1,13 @@
 # council-gate
 
+[![CI](https://github.com/AdishAssain/council-gate/actions/workflows/test.yml/badge.svg)](https://github.com/AdishAssain/council-gate/actions/workflows/test.yml)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![PyPI](https://img.shields.io/badge/install-uv%20tool-orange)](https://github.com/astral-sh/uv)
+
 > Cross-model adversarial review with an asymmetric entropy gate.
 
-`council-gate` runs any text artifact — engineering spec, PR diff, grant proposal, data analysis, strategy doc — past a council of frontier LLMs from **different providers**, measures cross-reviewer disagreement, and routes the result to one of two destinations:
+`council-gate` runs any artifact — `.docx` proposal, `.pdf` report, engineering spec, PR diff, data analysis, strategy doc — past a council of frontier LLMs from **different providers**, measures cross-reviewer disagreement, and routes the result to one of two destinations:
 
 - **High disagreement** → a formatted escalation message ready for human adjudication.
 - **Low disagreement** → a consensus report annotated with **known correlated-failure dimensions** the council is statistically likely to have missed together.
@@ -33,6 +38,26 @@ The two original primitives are the **council** (cross-model, not cross-prompt) 
    (formatted message               (verify against known
     for human channel)               correlated blindspots)
 ```
+
+## What you can review
+
+**Supported formats** (no flags, auto-detected):
+
+- **Documents**: `.docx`, `.pdf`, `.pptx`, `.xlsx`, `.odt`, `.rtf`, `.epub` — converted to markdown via [MarkItDown](https://github.com/microsoft/markitdown)
+- **Plain text**: `.md`, `.txt`, `.diff`, `.patch`, source code in any language — read verbatim
+
+Pick the `--mode` that matches your artifact, or let it auto-pick (`.docx`/`.pdf` → `proposal`, everything else → `eng`). The mode changes *what the council looks for*, not how disagreement is measured.
+
+| `--mode` | Use it for | Focus |
+|---|---|---|
+| `eng` | engineering specs, PR diffs, design docs, plans | correctness, edge cases, failure modes, missing-data handling, security boundaries, silent-failure paths |
+| `proposal` | grant proposals, strategy docs, pitches, research statements | claim/evidence asymmetry, hidden assumptions, audience fit, vague language, missing failure modes |
+| `analysis` | data analyses, research findings, statistical claims | sample bias, confounders, missing-data handling, unsupported causal claims, statistical pitfalls, reproducibility |
+| `general` | other / mixed / fallback | factual errors, internal inconsistencies, unsupported claims, hidden assumptions |
+
+Bring your own prompt with `--prompt path/to/your.md` for fully bespoke reviews.
+
+> **`council-gate` command not found after restarting your terminal?** Run `~/.local/bin/council-gate doctor` for setup diagnostics, or re-run `council-gate init` to repair your PATH (now writes both `.zshrc` and `.zprofile`).
 
 ## Why cross-model, not cross-prompt
 
@@ -68,19 +93,6 @@ council-gate review path/to/artifact.md          # auto-saves clean markdown rep
 ```
 
 That's it. The report lands at `./council-gate-<artifact>-<timestamp>.md` ready to open in any markdown viewer (Cursor, VS Code, GitHub).
-
-### Review modes
-
-Pass `--mode` to pick the bundled review prompt that matches your artifact. Different modes change *what the council looks for*, not how it's measured.
-
-| `--mode` | Use it for | Focus |
-|---|---|---|
-| `eng` (default) | engineering specs, PR diffs, design docs, plans | correctness, edge cases, failure modes, missing-data handling, security boundaries, silent-failure paths |
-| `proposal` | grant proposals, strategy docs, pitches, research statements | claim/evidence asymmetry, hidden assumptions, audience fit, vague language, missing failure modes |
-| `analysis` | data analyses, research findings, statistical claims | sample bias, confounders, missing-data handling, unsupported causal claims, statistical pitfalls, reproducibility |
-| `general` | other / mixed / fallback | factual errors, internal inconsistencies, unsupported claims, hidden assumptions |
-
-For fully bespoke prompts: `--prompt path/to/your.md`.
 
 ### Other commands
 
