@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync deps
+        run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type-check
+        run: uv run mypy src/ || true   # informational until strict-typed
+
+      - name: Test
+        run: uv run pytest -v
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Sanity-check installed CLI resolves
+        run: |
+          uv pip install dist/*.whl
+          uv run council-gate --help

@@ -1,0 +1,45 @@
+name: council-gate review
+description: Cross-model adversarial review of an artifact (spec, PR diff, proposal) with an asymmetric entropy gate.
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  artifact-path:
+    description: Path (relative to repo root) of the artifact to review.
+    required: true
+  mode:
+    description: "Bundled review prompt: eng | proposal | analysis | general."
+    required: false
+    default: eng
+  generator-provider:
+    description: Provider slug to exclude from the council (the artifact's author).
+    required: false
+  openrouter-api-key:
+    description: OpenRouter API key. Pass via secrets — never inline.
+    required: true
+  threshold:
+    description: Disagreement threshold ∈ [0, 1] above which the gate fires escalation.
+    required: false
+    default: "0.35"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install council-gate
+      shell: bash
+      run: pip install council-gate
+    - name: Run council-gate
+      shell: bash
+      env:
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        COUNCIL_GENERATOR_PROVIDER: ${{ inputs.generator-provider }}
+      run: |
+        council-gate review \
+          --mode "${{ inputs.mode }}" \
+          --threshold "${{ inputs.threshold }}" \
+          "${{ inputs.artifact-path }}"
