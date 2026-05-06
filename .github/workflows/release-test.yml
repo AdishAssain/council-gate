@@ -1,0 +1,65 @@
+# Dry-run publish to TestPyPI. Manually triggered from the Actions tab.
+# Use this BEFORE tagging v* to catch metadata / OIDC / wheel issues without
+# burning a real PyPI version number.
+#
+# ONE-TIME SETUP (mirrors release.yml, but on test.pypi.org):
+#   1. https://test.pypi.org/manage/account/publishing/ → Add pending publisher:
+#        Project name:    council-gate
+#        Owner:           AdishAssain
+#        Repository:      council-gate
+#        Workflow name:   release-test.yml
+#        Environment:     testpypi          ← matches `environment:` below
+#   2. GitHub → Settings → Environments → New environment named `testpypi`
+#
+# Then to dry-run: Actions tab → "release-test" → "Run workflow" (button).
+# Verify install:
+#   uv pip install --index-url https://test.pypi.org/simple/ \
+#                  --extra-index-url https://pypi.org/simple/ \
+#                  council-gate==<version>
+#
+# Note: TestPyPI also rejects re-uploads of the same version. If you need to
+# re-test, bump the dev suffix in pyproject.toml (e.g. 1.2.2 → 1.2.2.dev1)
+# before re-running. The .devN suffix doesn't affect the eventual real release.
+
+name: release-test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Verify metadata
+        run: uvx twine check dist/*
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/council-gate
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
