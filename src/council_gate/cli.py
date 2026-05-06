@@ -217,7 +217,12 @@ def _cmd_update() -> int:
         "git+https://github.com/AdishAssain/council-gate",
     ]
     print(f"running: {' '.join(cmd)}\n")
-    return subprocess.run(cmd).returncode
+    rc = subprocess.run(cmd).returncode
+    if rc == 0:
+        # Make sure ~/.local/bin survives in new shells. Quiet on success;
+        # uv prints its own status, and there's nothing the user can act on.
+        subprocess.run(["uv", "tool", "update-shell"], capture_output=True)
+    return rc
 
 
 def _cmd_doctor() -> int:

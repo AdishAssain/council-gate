@@ -4,6 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PyPI](https://img.shields.io/badge/install-uv%20tool-orange)](https://github.com/astral-sh/uv)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/AdishAssain/council-gate/pkgs/container/council-gate)
 
 > Cross-model adversarial review with an asymmetric entropy gate.
 
@@ -84,15 +85,38 @@ In practice, low-disagreement output ships with a checklist (`novelty`, `edge ca
 
 ## Quickstart
 
-Requires Python ≥ 3.12 and [`uv`](https://docs.astral.sh/uv/).
-
+**macOS / Linux / WSL:**
 ```bash
-uv tool install git+https://github.com/AdishAssain/council-gate
-council-gate init --openrouter-key sk-or-v1-…   # interactive prompt if you skip the flag
-council-gate review path/to/artifact.md          # auto-saves clean markdown report to cwd
+curl -LsSf https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.sh | sh
+council-gate init                                    # paste your OpenRouter key when prompted
+council-gate review path/to/proposal.docx            # auto-saves clean markdown report to cwd
 ```
 
-That's it. The report lands at `./council-gate-<artifact>-<timestamp>.md` ready to open in any markdown viewer (Cursor, VS Code, GitHub).
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.ps1 | iex
+council-gate init
+council-gate review path\to\proposal.docx
+```
+
+**Docker (no install, hermetic, good for CI):**
+```bash
+docker run --rm -v "$PWD:/work" -w /work \
+    -e OPENROUTER_API_KEY=sk-or-... \
+    ghcr.io/adishassain/council-gate review proposal.docx
+```
+
+The native installers handle `uv`, `council-gate`, and your shell PATH so the binary works in fresh terminals. **You don't need Python pre-installed** — uv ships a managed Python 3.12 automatically. The report lands at `./council-gate-<artifact>-<timestamp>.md`, ready to open in any markdown viewer (Cursor, VS Code, GitHub).
+
+<details>
+<summary>Manual install (if you'd rather not pipe curl to sh)</summary>
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install git+https://github.com/AdishAssain/council-gate
+uv tool update-shell    # ensures ~/.local/bin is on PATH in new terminals
+```
+</details>
 
 ### Other commands
 
