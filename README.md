@@ -34,7 +34,7 @@ The fastest path on each platform:
 | **Python users** | `pip install council-gate` |
 | **macOS / Linux / WSL** | `curl -LsSf https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.sh \| sh` |
 | **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.ps1 \| iex` |
-| **Claude Code** | `/plugin marketplace add github:AdishAssain/council-gate` then `/plugin install council-gate` |
+| **Claude Code** | `/plugin marketplace add AdishAssain/council-gate` then `/plugin install council-gate` |
 | **Docker** (no install) | `docker run --rm -v "$PWD:/work" -w /work -e OPENROUTER_API_KEY=... ghcr.io/adishassain/council-gate review proposal.docx` |
 
 The non-pip installers handle everything for you: install `uv`, install Python, install `council-gate` from PyPI, fix your PATH. **No prerequisite knowledge required, no Python pre-installed needed.**
