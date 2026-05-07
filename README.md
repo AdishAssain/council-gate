@@ -31,13 +31,14 @@ The fastest path on each platform:
 
 | Platform | Command |
 |---|---|
+| **Zero-install (any OS with `uv`)** | `uvx council-gate review proposal.docx` |
 | **Python users** | `pip install council-gate` |
 | **macOS / Linux / WSL** | `curl -LsSf https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.sh \| sh` |
 | **Windows (PowerShell)** | `irm https://raw.githubusercontent.com/AdishAssain/council-gate/main/install.ps1 \| iex` |
-| **Claude Code** | `/plugin marketplace add AdishAssain/council-gate` then `/plugin install council-gate` |
+| **Claude Code (in-chat skill)** | drop the SKILL.md into `~/.claude/skills/`, see [Claude Code skill](#claude-code-skill-in-chat-review) below |
 | **Docker** (no install) | `docker run --rm -v "$PWD:/work" -w /work -e OPENROUTER_API_KEY=... ghcr.io/adishassain/council-gate review proposal.docx` |
 
-The non-pip installers handle everything for you: install `uv`, install Python, install `council-gate` from PyPI, fix your PATH. **No prerequisite knowledge required, no Python pre-installed needed.**
+`uvx council-gate` fetches and runs straight from PyPI — no install step, no PATH fix, just works. The native installers handle the same plus persistent PATH so `council-gate` works in fresh terminals.
 
 Then:
 
@@ -47,6 +48,20 @@ council-gate review path/to/proposal.docx          # report saved to ./council-g
 ```
 
 That's it. The default model mix runs on ~$1–2 of OpenRouter credit per review. Open the saved markdown in any viewer (Cursor, VS Code, GitHub, even Notes.app).
+
+### Claude Code skill (in-chat review)
+
+Drop the skill into your local Claude Code config — it auto-activates on phrases like "review this proposal" or "council review":
+
+```bash
+mkdir -p ~/.claude/skills/council-gate
+curl -sL https://raw.githubusercontent.com/AdishAssain/council-gate/main/skills/council-gate/SKILL.md \
+  -o ~/.claude/skills/council-gate/SKILL.md
+```
+
+Restart Claude Code. Then in any session: *"review this proposal: ~/path/to/proposal.docx"* — Claude will run `uvx council-gate review …` for you, prompt for your OpenRouter key on first use, and surface the verdict.
+
+> **Why not `/plugin install`?** A `.claude-plugin/marketplace.json` is shipped in this repo, but `/plugin install` from third-party marketplaces is currently blocked by an upstream Claude Code bug ([anthropics/claude-code#41653](https://github.com/anthropics/claude-code/issues/41653)) — the remote backend rejects every non-Anthropic source. The manual skill drop above works on every Claude Code version. We'll switch the recommendation back to `/plugin install` once the upstream fix ships.
 
 ---
 

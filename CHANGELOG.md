@@ -6,6 +6,14 @@
 >
 > Until 2.0, treat version bumps as 0Ver-style: any release can change behaviour. Read the entry below before upgrading.
 
+## 1.2.4 — 2026-05-07
+
+Docs only — no PyPI republish (wheel is identical to 1.2.3).
+
+- README: replace the broken `/plugin install council-gate` install path with a manual SKILL.md drop into `~/.claude/skills/council-gate/`. The slash-command path is blocked by an upstream Claude Code bug ([anthropics/claude-code#41653](https://github.com/anthropics/claude-code/issues/41653)) — the remote marketplace backend rejects every third-party plugin source regardless of `marketplace.json` shape. The manual skill drop activates on phrases like "review this proposal" and works on every Claude Code version.
+- README: lead the install matrix with `uvx council-gate` — the only zero-install, zero-PATH-fix, zero-marketplace-bug path that works today.
+- `.claude-plugin/marketplace.json`: defensive shape alignment with the format used by working Anthropic-channel plugins (`source: "./"` instead of `"."`, added `author` field on the plugin entry). Almost certainly not the cause of the upstream bug, but matches the working pattern so the plugin install lights up correctly once #41653 ships.
+
 ## 1.2.3 — 2026-05-06
 
 PATCH: post-PyPI-publish cleanup. No behaviour change — same binary, faster install.

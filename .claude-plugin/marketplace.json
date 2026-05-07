@@ -7,9 +7,13 @@
   "plugins": [
     {
       "name": "council-gate",
-      "source": ".",
+      "source": "./",
       "description": "Cross-model adversarial review for docs, proposals, and PR diffs.",
       "version": "1.2.3",
+      "author": {
+        "name": "council-gate contributors",
+        "url": "https://github.com/AdishAssain/council-gate"
+      },
       "category": "review"
     }
   ]
