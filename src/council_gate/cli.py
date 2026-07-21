@@ -31,13 +31,17 @@ def _config_path() -> Path:
 
 def _build_gate(version: str, threshold: float) -> EntropyGate | EntropyGateV2:
     if version == "v2":
-        try:
-            from council_gate.embeddings import SentenceTransformerEmbedder
-        except ImportError as e:
+        # sentence-transformers loads lazily; check up front so a missing
+        # extra fails here, not after the council has spent API money.
+        import importlib.util
+
+        if importlib.util.find_spec("sentence_transformers") is None:
             raise SystemExit(
                 "council-gate: --gate-version v2 needs the gate-v2 extra.\n"
                 "Install: pip install 'council-gate[gate-v2]'"
-            ) from e
+            )
+        from council_gate.embeddings import SentenceTransformerEmbedder
+
         return EntropyGateV2(embedder=SentenceTransformerEmbedder(), threshold=threshold)
     return EntropyGate(threshold=threshold)
 
@@ -386,6 +390,16 @@ def _cmd_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _md_cell(s: str) -> str:
+    """Escape model-controlled text for a markdown table cell."""
+    return s.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+
+def _md_inline(s: str) -> str:
+    """Collapse whitespace so model text can't inject markdown structure."""
+    return " ".join(s.split())
+
+
 def _build_markdown_report(
     args: argparse.Namespace,
     v: GateVerdict,
@@ -456,7 +470,7 @@ def _build_markdown_report(
             out.append(f"### {r.model_id}\n")
             if r.overall is not None:
                 o = r.overall
-                rationale = o.rationale.strip()
+                rationale = _md_inline(o.rationale.strip())
                 line = f"_Overall: **{o.recommendation}** · worst severity {o.severity}_"
                 if rationale:
                     line += f" — {rationale}"
@@ -465,13 +479,15 @@ def _build_markdown_report(
                 out.append("| Severity | Kind | Conf | Where | Issue |")
                 out.append("|---|---|---|---|---|")
                 for f in r.findings:
-                    loc = f.location or "—"
-                    summary = f.summary.replace("|", "\\|")
+                    loc = _md_cell(f.location or "—")
+                    summary = _md_cell(f.summary)
                     conf = f.confidence or "—"
                     out.append(
                         f"| **{f.severity.upper()}** | {f.disposition} | {conf} | `{loc}` | {summary} |"
                     )
                 out.append("")
+            elif r.overall is not None:
+                out.append("_(no findings raised)_\n")
             else:
                 out.append("_(reviewer returned free-prose feedback rather than tagged findings)_\n")
             if r.raw_text and not r.findings:
@@ -519,7 +535,7 @@ def _build_markdown_report(
         out.append("| Seat | Reason |")
         out.append("|---|---|")
         for r in failed:
-            reason = (r.error or "unknown error").replace("|", "\\|")
+            reason = _md_cell(r.error or "unknown error")
             # Strip the model_id prefix from the reason since it's in the row label
             if reason.startswith(f"{r.model_id}: "):
                 reason = reason[len(r.model_id) + 2 :]

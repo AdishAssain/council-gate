@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 log = logging.getLogger(__name__)
 

@@ -425,26 +425,6 @@ def test_v2_all_singletons_keeps_max_disagreement():
     assert v.disagreement > 0.9
 
 
-def test_v2_all_singletons_keeps_max_disagreement():
-    """The edge case: when every reviewer raises a unique critical (no
-    shared cluster at all), don't truncate them — that's genuine maximum
-    disagreement, not noise."""
-    gate = EntropyGateV2(
-        embedder=HashEmbedder(),
-        threshold=0.30,
-        min_cluster_size=2,
-        consensus_override_min=2.0,
-    )
-    reviewers = [
-        _review_with("a", [_f("critical", "auth bypass token flaw issue")]),
-        _review_with("b", [_f("critical", "data corruption schema migration")]),
-        _review_with("c", [_f("critical", "race condition lock acquisition")]),
-    ]
-    v = gate.evaluate(reviewers)
-    assert v.verdict == Verdict.ESCALATE
-    assert v.disagreement > 0.9
-
-
 def test_v2_override_validators():
     with pytest.raises(ValueError):
         EntropyGateV2(embedder=HashEmbedder(), consensus_override_min=-0.1)

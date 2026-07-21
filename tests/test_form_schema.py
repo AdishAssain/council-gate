@@ -1,4 +1,4 @@
-"""Phase-1 canonical form additions: disposition, confidence, overall verdict."""
+"""Form fields: disposition, confidence, and the per-review overall verdict."""
 from council_gate.parsing import parse_review
 from council_gate.types import Finding, OverallVerdict, Review
 
@@ -79,3 +79,49 @@ def test_parse_review_legacy_lines_returns_none_overall():
     assert len(findings) == 1
     assert findings[0].severity == "critical"
     assert overall is None
+
+
+def test_parse_review_clean_review_preserves_overall():
+    # The prompts instruct exactly this shape for a no-issues review.
+    text = """{
+      "overall": {"recommendation": "accept", "severity": "nit", "rationale": "solid"},
+      "findings": []
+    }"""
+    findings, overall = parse_review(text)
+    assert findings == []
+    assert overall is not None
+    assert overall.recommendation == "accept"
+
+
+def test_parse_review_prose_wrapped_top_level_array():
+    text = 'Here are my findings:\n[{"summary": "a", "severity": "minor"}]'
+    findings, overall = parse_review(text)
+    assert len(findings) == 1
+    assert findings[0].summary == "a"
+    assert overall is None
+
+
+def test_finding_from_dict_unhashable_values_default():
+    f = Finding.from_dict(
+        {
+            "severity": ["critical"],
+            "summary": "x",
+            "category": {"a": 1},
+            "disposition": [],
+            "confidence": {},
+            "location": {"file": "a.py"},
+            "evidence_quote": ["q"],
+        }
+    )
+    assert f.severity == "minor"
+    assert f.category == "unspecified"
+    assert f.disposition == "defect"
+    assert f.confidence is None
+    assert f.location is None
+    assert f.evidence_quote is None
+
+
+def test_overall_verdict_from_dict_unhashable_values_default():
+    o = OverallVerdict.from_dict({"recommendation": ["block"], "severity": {}})
+    assert o.recommendation == "revise"
+    assert o.severity == "minor"

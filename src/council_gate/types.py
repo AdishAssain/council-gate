@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 Severity = Literal["critical", "major", "minor", "nit"]
 
@@ -19,12 +19,6 @@ Category = Literal[
     "unspecified",
 ]
 
-# Phase-1 canonical form additions.
-# disposition: the KIND of claim, so the gate can tell a raised concern from an
-#   explicit endorsement (and, later, a contradiction from mere divergence).
-# confidence: the reviewer's own certainty, for weighting.
-# recommendation: a per-reviewer artifact-level stance — a clean top-level
-#   agree/disagree signal that complements finding-level agreement.
 Disposition = Literal["defect", "risk", "gap", "question", "endorse"]
 Confidence = Literal["low", "med", "high"]
 Recommendation = Literal["block", "revise", "accept"]
@@ -54,6 +48,19 @@ _VALID_CONFIDENCES: frozenset[str] = frozenset(("low", "med", "high"))
 _VALID_RECOMMENDATIONS: frozenset[str] = frozenset(("block", "revise", "accept"))
 
 
+def _enum_or(
+    d: dict[str, Any], key: str, allowed: frozenset[str], default: str | None
+) -> str | None:
+    # isinstance first: `x in frozenset` raises TypeError on unhashable input.
+    v = d.get(key, default)
+    return v if isinstance(v, str) and v in allowed else default
+
+
+def _str_or_none(d: dict[str, Any], key: str) -> str | None:
+    v = d.get(key)
+    return v if isinstance(v, str) and v else None
+
+
 @dataclass(slots=True, frozen=True)
 class Finding:
     severity: Severity
@@ -79,27 +86,21 @@ class Finding:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Finding":
-        sev = d.get("severity", "minor")
-        if sev not in _VALID_SEVERITIES:
-            sev = "minor"
-        cat = d.get("category", "unspecified")
-        if cat not in _VALID_CATEGORIES:
-            cat = "unspecified"
-        disp = d.get("disposition", "defect")
-        if disp not in _VALID_DISPOSITIONS:
-            disp = "defect"
-        conf = d.get("confidence")
-        if conf not in _VALID_CONFIDENCES:
-            conf = None
         return cls(
-            severity=sev,  # type: ignore[arg-type]
+            severity=cast(Severity, _enum_or(d, "severity", _VALID_SEVERITIES, "minor")),
             summary=str(d.get("summary", "")).strip(),
-            location=d.get("location") or None,
-            category=cat,  # type: ignore[arg-type]
+            location=_str_or_none(d, "location"),
+            category=cast(
+                Category, _enum_or(d, "category", _VALID_CATEGORIES, "unspecified")
+            ),
             rationale=str(d.get("rationale", "")).strip(),
-            evidence_quote=d.get("evidence_quote") or None,
-            disposition=disp,  # type: ignore[arg-type]
-            confidence=conf,  # type: ignore[arg-type]
+            evidence_quote=_str_or_none(d, "evidence_quote"),
+            disposition=cast(
+                Disposition, _enum_or(d, "disposition", _VALID_DISPOSITIONS, "defect")
+            ),
+            confidence=cast(
+                "Confidence | None", _enum_or(d, "confidence", _VALID_CONFIDENCES, None)
+            ),
         )
 
 
@@ -113,15 +114,12 @@ class OverallVerdict:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OverallVerdict":
-        rec = d.get("recommendation", "revise")
-        if rec not in _VALID_RECOMMENDATIONS:
-            rec = "revise"
-        sev = d.get("severity", "minor")
-        if sev not in _VALID_SEVERITIES:
-            sev = "minor"
         return cls(
-            recommendation=rec,  # type: ignore[arg-type]
-            severity=sev,  # type: ignore[arg-type]
+            recommendation=cast(
+                Recommendation,
+                _enum_or(d, "recommendation", _VALID_RECOMMENDATIONS, "revise"),
+            ),
+            severity=cast(Severity, _enum_or(d, "severity", _VALID_SEVERITIES, "minor")),
             rationale=str(d.get("rationale", "")).strip(),
         )
 

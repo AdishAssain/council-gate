@@ -113,14 +113,15 @@ def parse_review(text: str) -> tuple[list[Finding], OverallVerdict | None]:
                 findings.append(Finding.from_dict(raw))
             except (TypeError, ValueError):
                 continue
-        if findings:
-            overall = None
-            if isinstance(data, dict) and isinstance(data.get("overall"), dict):
-                try:
-                    overall = OverallVerdict.from_dict(data["overall"])
-                except (TypeError, ValueError):
-                    overall = None
-            return findings, overall
+        # An empty findings list is still the model's answer — the prompts
+        # instruct {"findings": []} for a clean review; don't drop `overall`.
+        overall = None
+        if isinstance(data, dict) and isinstance(data.get("overall"), dict):
+            try:
+                overall = OverallVerdict.from_dict(data["overall"])
+            except (TypeError, ValueError):
+                overall = None
+        return findings, overall
     return parse_findings(text), None
 
 
@@ -144,21 +145,25 @@ def _json_candidates(text: str) -> list[str]:
 
 
 def _slice_outer_json(text: str) -> str | None:
-    """Return the substring from the first { or [ to its matching close.
+    """Return the substring from the earliest { or [ to its matching close.
     Naive — doesn't handle strings with braces — but a useful fallback when
     a model wraps JSON in prose."""
-    for open_ch, close_ch in (("{", "}"), ("[", "]")):
-        start = text.find(open_ch)
-        if start < 0:
-            continue
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == open_ch:
-                depth += 1
-            elif text[i] == close_ch:
-                depth -= 1
-                if depth == 0:
-                    return text[start : i + 1]
+    starts = [
+        (text.find(open_ch), open_ch, close_ch)
+        for open_ch, close_ch in (("{", "}"), ("[", "]"))
+        if text.find(open_ch) >= 0
+    ]
+    if not starts:
+        return None
+    start, open_ch, close_ch = min(starts)
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == open_ch:
+            depth += 1
+        elif text[i] == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
     return None
 
 
@@ -167,6 +172,7 @@ def _extract_findings_list(data: Any) -> list[Any] | None:
         return data
     if isinstance(data, dict):
         for key in ("findings", "issues", "items", "results"):
-            if isinstance(data.get(key), list):
-                return data[key]
+            val = data.get(key)
+            if isinstance(val, list):
+                return val
     return None
