@@ -49,6 +49,11 @@ class GateVerdict:
     top_cluster_agreement: float = 0.0
     top_cluster_severity: Severity | None = None
     top_cluster_summary: str | None = None
+    # Reviewers' artifact-level recommendations (block/revise/accept), in
+    # review order. A polar split (block AND accept present) forces ESCALATE:
+    # reviewers can produce near-identical findings yet disagree on whether
+    # the artifact is acceptable — entropy alone cannot see that.
+    recommendations: tuple[str, ...] = ()
 
 
 CORRELATED_BLINDSPOT_DIMENSIONS = (
@@ -69,6 +74,21 @@ SEVERITY_WEIGHTS: dict[Severity, float] = {
 
 def _tokens(s: str) -> set[str]:
     return {t for t in re.findall(r"[a-z0-9]{4,}", s.lower())}
+
+
+def _recommendations(reviews: list[Review]) -> tuple[str, ...]:
+    return tuple(r.overall.recommendation for r in reviews if r.overall is not None)
+
+
+def _polar_split(recs: tuple[str, ...]) -> bool:
+    return "block" in recs and "accept" in recs
+
+
+def _conflict_reason(recs: tuple[str, ...]) -> str:
+    return (
+        f"overall verdicts conflict ({', '.join(recs)}) — one reviewer would "
+        "block what another would accept; human adjudication required."
+    )
 
 
 def _pairwise_disagreement(
@@ -188,12 +208,14 @@ class EntropyGate:
 
     def evaluate(self, reviews: list[Review]) -> GateVerdict:
         ok_reviews = [r for r in reviews if r.ok]
+        recs = _recommendations(ok_reviews)
         if len(ok_reviews) < 2:
             return GateVerdict(
                 verdict=Verdict.INSUFFICIENT,
                 disagreement=0.0,
                 reviewer_count=len(ok_reviews),
                 reason=f"need >=2 successful reviewers, got {len(ok_reviews)}",
+                recommendations=recs,
             )
 
         d, pair_count, pair_records = _pairwise_disagreement(ok_reviews)
@@ -203,6 +225,15 @@ class EntropyGate:
             self.threshold,
             pair_count,
         )
+        if _polar_split(recs):
+            return GateVerdict(
+                verdict=Verdict.ESCALATE,
+                disagreement=d,
+                reviewer_count=len(ok_reviews),
+                reason=_conflict_reason(recs),
+                pair_distances=pair_records,
+                recommendations=recs,
+            )
         if pair_count == 0:
             return GateVerdict(
                 verdict=Verdict.INSUFFICIENT,
@@ -212,6 +243,7 @@ class EntropyGate:
                     "no comparable reviewer pairs (all reviews parsed to empty "
                     "findings AND empty raw_text — likely a parser or adapter bug)"
                 ),
+                recommendations=recs,
             )
 
         if d >= self.threshold:
@@ -221,6 +253,7 @@ class EntropyGate:
                 reviewer_count=len(ok_reviews),
                 reason=f"disagreement {d:.2f} >= threshold {self.threshold:.2f}",
                 pair_distances=pair_records,
+                recommendations=recs,
             )
         return GateVerdict(
             verdict=Verdict.CONSENSUS_CHECK,
@@ -232,6 +265,7 @@ class EntropyGate:
                 "dimensions before trusting."
             ),
             pair_distances=pair_records,
+            recommendations=recs,
         )
 
 
@@ -286,6 +320,7 @@ class EntropyGateV2:
 
     def evaluate(self, reviews: list[Review]) -> GateVerdict:
         ok_reviews = [r for r in reviews if r.ok]
+        recs = _recommendations(ok_reviews)
         if len(ok_reviews) < 2:
             return GateVerdict(
                 verdict=Verdict.INSUFFICIENT,
@@ -293,10 +328,22 @@ class EntropyGateV2:
                 reviewer_count=len(ok_reviews),
                 reason=f"need >=2 successful reviewers, got {len(ok_reviews)}",
                 severity_weighted=True,
+                recommendations=recs,
             )
 
         labeled = [(r.model_id, f) for r in ok_reviews for f in r.findings]
         if not labeled:
+            if _polar_split(recs):
+                # Clean-looking reviews can still disagree at the artifact
+                # level; that's a verdict, not a parsing failure.
+                return GateVerdict(
+                    verdict=Verdict.ESCALATE,
+                    disagreement=0.0,
+                    reviewer_count=len(ok_reviews),
+                    reason=_conflict_reason(recs),
+                    severity_weighted=True,
+                    recommendations=recs,
+                )
             return GateVerdict(
                 verdict=Verdict.INSUFFICIENT,
                 disagreement=0.0,
@@ -306,6 +353,7 @@ class EntropyGateV2:
                     "failed; check raw_text and consider lowering threshold"
                 ),
                 severity_weighted=True,
+                recommendations=recs,
             )
 
         clusters = cluster_findings(
@@ -338,6 +386,23 @@ class EntropyGateV2:
             top_sev,
         )
 
+        # A polar recommendation split beats everything below, including the
+        # consensus override: shared findings don't make a block-vs-accept
+        # disagreement go away.
+        if _polar_split(recs):
+            return GateVerdict(
+                verdict=Verdict.ESCALATE,
+                disagreement=disagreement,
+                reviewer_count=len(ok_reviews),
+                reason=_conflict_reason(recs),
+                clusters=tuple(clusters),
+                severity_weighted=True,
+                top_cluster_agreement=top_frac,
+                top_cluster_severity=top_sev,
+                top_cluster_summary=top_summary,
+                recommendations=recs,
+            )
+
         # Override entropy when reviewers strongly agree on a serious finding.
         # Without this, a singleton tail inflates entropy past threshold even
         # when the load-bearing finding is unanimous.
@@ -359,6 +424,7 @@ class EntropyGateV2:
                 top_cluster_agreement=top_frac,
                 top_cluster_severity=top_sev,
                 top_cluster_summary=top_summary,
+                recommendations=recs,
             )
 
         if disagreement >= self.threshold:
@@ -377,6 +443,7 @@ class EntropyGateV2:
                 top_cluster_agreement=top_frac,
                 top_cluster_severity=top_sev,
                 top_cluster_summary=top_summary,
+                recommendations=recs,
             )
         return GateVerdict(
             verdict=Verdict.CONSENSUS_CHECK,
@@ -392,4 +459,5 @@ class EntropyGateV2:
             top_cluster_agreement=top_frac,
             top_cluster_severity=top_sev,
             top_cluster_summary=top_summary,
+            recommendations=recs,
         )
