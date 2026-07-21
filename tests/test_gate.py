@@ -2,7 +2,7 @@ import pytest
 
 from council_gate.embeddings import HashEmbedder
 from council_gate.gate import EntropyGate, EntropyGateV2, Verdict
-from council_gate.types import Finding, Review
+from council_gate.types import Finding, OverallVerdict, Review
 
 
 def _review(provider: str, summaries: list[str]) -> Review:
@@ -454,3 +454,85 @@ def test_v2_disjoint_nits_score_far_below_disjoint_criticals():
     assert crit_score > 0.9
     assert nit_score < 0.1
     assert crit_score / max(nit_score, 1e-6) > 10
+
+
+def _with_overall(r: Review, rec) -> Review:
+    r.overall = OverallVerdict(recommendation=rec, severity="major")
+    return r
+
+
+def test_v1_polar_recommendation_split_escalates():
+    gate = EntropyGate(threshold=0.35)
+    same = "null check missing in parser line forty two"
+    a = _with_overall(_review("openai", [same]), "accept")
+    b = _with_overall(_review("anthropic", [same]), "block")
+    v = gate.evaluate([a, b])
+    assert v.verdict == Verdict.ESCALATE
+    assert "conflict" in v.reason
+    assert set(v.recommendations) == {"accept", "block"}
+
+
+def test_v1_unanimous_block_is_not_forced_escalation():
+    gate = EntropyGate(threshold=0.35)
+    same = "null check missing in parser line forty two"
+    a = _with_overall(_review("openai", [same]), "block")
+    b = _with_overall(_review("anthropic", [same]), "block")
+    v = gate.evaluate([a, b])
+    assert v.verdict == Verdict.CONSENSUS_CHECK
+    assert v.recommendations == ("block", "block")
+
+
+def test_v2_polar_split_vetoes_consensus_override():
+    gate = EntropyGateV2(
+        embedder=HashEmbedder(), threshold=0.30, consensus_override_min=0.80
+    )
+    shared = "unbounded recursion in config loader"
+    reviews = [
+        _with_overall(_review_with(p, [_f("critical", shared)]), rec)
+        for p, rec in (("a", "block"), ("b", "accept"), ("c", "block"))
+    ]
+    v = gate.evaluate(reviews)
+    assert v.verdict == Verdict.ESCALATE
+    assert "conflict" in v.reason
+
+
+def test_v2_unanimous_serious_cluster_still_overrides_without_split():
+    gate = EntropyGateV2(
+        embedder=HashEmbedder(), threshold=0.30, consensus_override_min=0.80
+    )
+    shared = "unbounded recursion in config loader"
+    reviews = [
+        _with_overall(_review_with(p, [_f("critical", shared)]), "block")
+        for p in ("a", "b", "c")
+    ]
+    v = gate.evaluate(reviews)
+    assert v.verdict == Verdict.CONSENSUS_CHECK
+    assert v.recommendations == ("block", "block", "block")
+
+
+def test_v2_clean_reviews_with_polar_split_escalate_not_insufficient():
+    gate = EntropyGateV2(embedder=HashEmbedder())
+    a = _with_overall(Review(model_id="a/m", provider="a", findings=[], raw_text="{}"), "accept")
+    b = _with_overall(Review(model_id="b/m", provider="b", findings=[], raw_text="{}"), "block")
+    v = gate.evaluate([a, b])
+    assert v.verdict == Verdict.ESCALATE
+    assert "conflict" in v.reason
+
+
+def test_v2_revise_vs_block_is_not_polar():
+    gate = EntropyGateV2(embedder=HashEmbedder(), consensus_override_min=0.80)
+    shared = "unbounded recursion in config loader"
+    reviews = [
+        _with_overall(_review_with(p, [_f("critical", shared)]), rec)
+        for p, rec in (("a", "block"), ("b", "revise"))
+    ]
+    v = gate.evaluate(reviews)
+    assert v.verdict == Verdict.CONSENSUS_CHECK
+
+
+def test_insufficient_still_records_lone_recommendation():
+    gate = EntropyGate(threshold=0.35)
+    r = _with_overall(_review("openai", ["single reviewer finding here"]), "block")
+    v = gate.evaluate([r])
+    assert v.verdict == Verdict.INSUFFICIENT
+    assert v.recommendations == ("block",)
