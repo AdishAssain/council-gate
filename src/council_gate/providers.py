@@ -22,7 +22,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from council_gate.parsing import parse as parse_findings
+from council_gate.parsing import parse_review
 from council_gate.types import Review
 
 log = logging.getLogger(__name__)
@@ -127,11 +127,13 @@ class CodexProvider:
                 f"codex exited {result.returncode}: {err.strip()}"
             )
         raw = result.stdout
+        findings, overall = parse_review(raw)
         return Review(
             model_id=self.model_id,
             provider=self.provider,
-            findings=parse_findings(raw),
+            findings=findings,
             raw_text=raw,
+            overall=overall,
         )
 
 
@@ -206,11 +208,13 @@ class OpenRouterProvider:
                 max_tok,
             )
             raw = f"[TRUNCATED at max_tokens={max_tok}]\n{raw}"
+        findings, overall = parse_review(raw)
         return Review(
             model_id=self.model_id,
             provider=self.provider,
-            findings=parse_findings(raw),
+            findings=findings,
             raw_text=raw,
+            overall=overall,
         )
 
     @staticmethod

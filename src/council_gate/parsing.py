@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-from council_gate.types import Finding, Severity
+from council_gate.types import Finding, OverallVerdict, Severity
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +91,37 @@ def parse(text: str) -> list[Finding]:
     if findings:
         return findings
     return parse_findings(text)
+
+
+def parse_review(text: str) -> tuple[list[Finding], OverallVerdict | None]:
+    """Parse both the findings and the (optional) artifact-level `overall`
+    verdict from one JSON payload. Falls back to the legacy line parser for
+    findings, in which case `overall` is None."""
+    for candidate in _json_candidates(text):
+        try:
+            data = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        items = _extract_findings_list(data)
+        if items is None:
+            continue
+        findings: list[Finding] = []
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                findings.append(Finding.from_dict(raw))
+            except (TypeError, ValueError):
+                continue
+        if findings:
+            overall = None
+            if isinstance(data, dict) and isinstance(data.get("overall"), dict):
+                try:
+                    overall = OverallVerdict.from_dict(data["overall"])
+                except (TypeError, ValueError):
+                    overall = None
+            return findings, overall
+    return parse_findings(text), None
 
 
 def _json_candidates(text: str) -> list[str]:
