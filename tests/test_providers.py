@@ -313,3 +313,15 @@ def test_structured_output_no_fallback_on_auth_error(monkeypatch):
     with pytest.raises(RuntimeError, match="Sign-in failed"):
         p.review("artifact", "prompt")
     assert len(calls) == 1
+
+
+def test_structured_output_empty_content_falls_back(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "1")
+    null_body = {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]}
+    calls = _mock_post_seq(monkeypatch, [(200, null_body), (200, _OK_BODY)])
+    p = OpenRouterProvider("test/model")
+    r = p.review("artifact", "prompt")
+    assert len(calls) == 2
+    assert "response_format" not in calls[1]
+    assert r.ok

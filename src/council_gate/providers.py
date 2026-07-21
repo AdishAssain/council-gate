@@ -236,6 +236,9 @@ class OpenRouterProvider:
                 f"openrouter response missing choices[0].message.content: {body!r}"[:500]
             ) from e
         if not isinstance(raw, str) or not raw.strip():
+            if schema:
+                # Constrained decoding produced nothing; worth one plain retry.
+                raise _SchemaUnsupported(f"{self.model_id}: empty structured response")
             # Some models return content: null (reasoning-only or filtered).
             raise RuntimeError(f"{self.model_id}: model returned empty content")
         finish = choice.get("finish_reason", "")
