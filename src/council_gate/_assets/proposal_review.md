@@ -44,20 +44,20 @@ Return a single JSON object with this shape, and nothing else (no preamble, no t
 ```json
 {
   "overall": {
-    "recommendation": "revise",
+    "rationale": "one sentence: your top-level read on whether this proposal is fundable/shippable as-is",
     "severity": "major",
-    "rationale": "one sentence: your top-level read on whether this proposal is fundable/shippable as-is"
+    "recommendation": "revise"
   },
   "findings": [
     {
+      "location": "section name or page ref, or null",
+      "evidence_quote": "short verbatim quote from the proposal, or null",
       "summary": "one atomic declarative sentence, <= 200 chars",
+      "rationale": "1-3 sentences explaining why this matters and what a reviewer would object to",
+      "category": "missing_evidence",
       "disposition": "gap",
       "severity": "major",
-      "confidence": "med",
-      "category": "missing_evidence",
-      "location": "section name or page ref, or null",
-      "rationale": "1-3 sentences explaining why this matters and what a reviewer would object to",
-      "evidence_quote": "short verbatim quote from the proposal, or null"
+      "confidence": "med"
     }
   ]
 }

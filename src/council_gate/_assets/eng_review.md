@@ -34,20 +34,20 @@ Return a single JSON object with this shape, and nothing else (no preamble, no t
 ```json
 {
   "overall": {
-    "recommendation": "revise",
+    "rationale": "one sentence: your top-level read on whether this is sound as-is",
     "severity": "major",
-    "rationale": "one sentence: your top-level read on whether this is sound as-is"
+    "recommendation": "revise"
   },
   "findings": [
     {
+      "location": "file:line or section ref, or null",
+      "evidence_quote": "short verbatim quote from the artifact, or null",
       "summary": "one atomic declarative sentence, <= 200 chars",
+      "rationale": "1-3 sentences explaining why this matters and what breaks",
+      "category": "correctness",
       "disposition": "defect",
       "severity": "major",
-      "confidence": "high",
-      "category": "correctness",
-      "location": "file:line or section ref, or null",
-      "rationale": "1-3 sentences explaining why this matters and what breaks",
-      "evidence_quote": "short verbatim quote from the artifact, or null"
+      "confidence": "high"
     }
   ]
 }
