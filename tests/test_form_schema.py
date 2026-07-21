@@ -127,6 +127,30 @@ def test_overall_verdict_from_dict_unhashable_values_default():
     assert o.severity == "minor"
 
 
+def test_parse_review_prose_bracket_before_json_object():
+    # A bracketed citation parses as a JSON list; it must not mask the
+    # real payload that follows.
+    text = 'Based on [1], my review:\n{"findings": [{"summary": "a", "severity": "minor"}]}'
+    findings, overall = parse_review(text)
+    assert len(findings) == 1
+    assert findings[0].summary == "a"
+
+
+def test_parse_review_braces_inside_json_strings():
+    text = '{"findings": [{"summary": "dict {a: 1} leaks", "severity": "minor", "evidence_quote": "x = {\\"k\\": [1]}"}]}'
+    findings, _ = parse_review("Review:\n" + text)
+    assert len(findings) == 1
+    assert "leaks" in findings[0].summary
+
+
+def test_parse_empty_json_findings_does_not_invoke_legacy():
+    # A valid empty review must not have findings fabricated from prose.
+    text = 'Earlier I wrote [CRITICAL] foo.py:1 — bad\n\n{"findings": []}'
+    from council_gate.parsing import parse
+
+    assert parse(text) == []
+
+
 def test_enum_fields_case_insensitive():
     f = Finding.from_dict(
         {"severity": "CRITICAL", "summary": "x", "disposition": "Defect", "confidence": "HIGH"}

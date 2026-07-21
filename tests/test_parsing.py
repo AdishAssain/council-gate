@@ -1,4 +1,4 @@
-from council_gate.parsing import parse, parse_findings, parse_findings_json
+from council_gate.parsing import parse, parse_findings
 
 
 def test_extracts_severity_tagged_lines():
@@ -36,7 +36,7 @@ def test_json_findings_wrapper():
             }
         ]
     }"""
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].category == "correctness"
     assert findings[0].severity == "critical"
@@ -46,7 +46,7 @@ def test_json_findings_wrapper():
 
 def test_json_top_level_array():
     text = '[{"severity": "major", "summary": "missing index", "category": "performance"}]'
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].category == "performance"
     assert findings[0].location is None
@@ -58,7 +58,7 @@ def test_json_inside_fenced_block():
 {"findings": [{"severity": "minor", "summary": "naming nit", "category": "nit"}]}
 ```
 trailing commentary."""
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].summary == "naming nit"
 
@@ -67,28 +67,28 @@ def test_json_inside_plain_fence_no_lang():
     text = """```
 [{"severity": "critical", "summary": "race condition", "category": "correctness"}]
 ```"""
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].severity == "critical"
 
 
 def test_json_with_unknown_category_defaults_unspecified():
     text = '[{"severity": "major", "summary": "x", "category": "made_up_category"}]'
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].category == "unspecified"
 
 
 def test_json_with_unknown_severity_defaults_minor():
     text = '[{"severity": "moderate", "summary": "x"}]'
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].severity == "minor"
 
 
 def test_json_missing_fields_uses_defaults():
     text = '[{"summary": "no severity specified"}]'
-    findings = parse_findings_json(text)
+    findings = parse(text)
     assert len(findings) == 1
     assert findings[0].severity == "minor"
     assert findings[0].category == "unspecified"
@@ -98,7 +98,7 @@ def test_json_missing_fields_uses_defaults():
 
 def test_malformed_json_returns_empty():
     text = "{this is not: valid json at all"
-    assert parse_findings_json(text) == []
+    assert parse(text) == []
 
 
 def test_parse_prefers_json_over_legacy():

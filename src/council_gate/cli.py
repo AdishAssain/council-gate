@@ -43,7 +43,14 @@ def _build_gate(version: str, threshold: float) -> EntropyGate | EntropyGateV2:
         from council_gate.embeddings import SentenceTransformerEmbedder
 
         return EntropyGateV2(embedder=SentenceTransformerEmbedder(), threshold=threshold)
-    return EntropyGate(threshold=threshold)
+    if version == "v1":
+        return EntropyGate(threshold=threshold)
+    # argparse validates choices only for CLI args; COUNCIL_GATE_VERSION
+    # feeds the default and would otherwise fall back to v1 silently.
+    raise SystemExit(
+        f"council-gate: unknown gate version {version!r} — use 'v1' or 'v2' "
+        "(via --gate-version or COUNCIL_GATE_VERSION)."
+    )
 
 
 def _save_raw_reviews(out_dir: Path, artifact_stem: str, reviews: list[Review]) -> None:
@@ -62,6 +69,7 @@ def _save_raw_reviews(out_dir: Path, artifact_stem: str, reviews: list[Review]) 
             "timestamp": stamp,
             "raw_text": r.raw_text,
             "parsed_findings": [f.to_dict() for f in r.findings],
+            "overall": r.overall.to_dict() if r.overall else None,
             "error": r.error,
         }
         (target / f"{safe_id}.json").write_text(

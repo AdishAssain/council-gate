@@ -115,6 +115,13 @@ class OverallVerdict:
     severity: Severity
     rationale: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recommendation": self.recommendation,
+            "severity": self.severity,
+            "rationale": self.rationale,
+        }
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OverallVerdict":
         return cls(

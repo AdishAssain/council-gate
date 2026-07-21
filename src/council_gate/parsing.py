@@ -55,42 +55,9 @@ def parse_findings(text: str) -> list[Finding]:
     return out
 
 
-def parse_findings_json(text: str) -> list[Finding]:
-    """Extract Findings from a JSON payload anywhere in the text.
-
-    Accepts:
-      - {"findings": [...]}
-      - top-level array [...]
-      - JSON inside ```json``` or plain ``` fences
-    Malformed JSON returns []; the caller should fall back.
-    """
-    for candidate in _json_candidates(text):
-        try:
-            data = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        items = _extract_findings_list(data)
-        if items is None:
-            continue
-        out: list[Finding] = []
-        for raw in items:
-            if not isinstance(raw, dict):
-                continue
-            try:
-                out.append(Finding.from_dict(raw))
-            except (TypeError, ValueError):
-                continue
-        if out:
-            return out
-    return []
-
-
 def parse(text: str) -> list[Finding]:
-    """Try JSON first, then legacy regex."""
-    findings = parse_findings_json(text)
-    if findings:
-        return findings
-    return parse_findings(text)
+    """Findings-only view of parse_review (JSON first, legacy fallback)."""
+    return parse_review(text)[0]
 
 
 def parse_review(text: str) -> tuple[list[Finding], OverallVerdict | None]:
@@ -105,36 +72,44 @@ def parse_review(text: str) -> tuple[list[Finding], OverallVerdict | None]:
         items = _extract_findings_list(data)
         if items is None:
             continue
-        findings: list[Finding] = []
-        for raw in items:
-            if not isinstance(raw, dict):
-                continue
-            try:
-                findings.append(Finding.from_dict(raw))
-            except (TypeError, ValueError):
-                continue
-        # An empty findings list is still the model's answer — the prompts
-        # instruct {"findings": []} for a clean review; don't drop `overall`.
+        findings = _findings_from_items(items)
         overall = None
         if isinstance(data, dict) and isinstance(data.get("overall"), dict):
             try:
                 overall = OverallVerdict.from_dict(data["overall"])
             except (TypeError, ValueError):
                 overall = None
-        return findings, overall
+        # A dict with a findings key is an answer even when empty (the
+        # prompts instruct {"findings": []} for a clean review); a bare list
+        # yielding nothing (a stray "[1]" in prose) is not — keep scanning.
+        if findings or overall is not None or isinstance(data, dict):
+            return findings, overall
     return parse_findings(text), None
 
 
+def _findings_from_items(items: list[Any]) -> list[Finding]:
+    out: list[Finding] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            out.append(Finding.from_dict(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+_MAX_SLICE_CANDIDATES = 8
+
+
 def _json_candidates(text: str) -> list[str]:
-    """Yield candidate JSON substrings: fenced blocks first, then full text,
-    then a best-effort slice from first { or [ to matching close."""
+    """Candidate JSON substrings: fenced blocks first, then full text, then
+    balanced {...}/[...] slices in position order."""
     candidates: list[str] = []
     for m in _FENCE_RE.finditer(text):
         candidates.append(m.group(1).strip())
     candidates.append(text.strip())
-    sliced = _slice_outer_json(text)
-    if sliced:
-        candidates.append(sliced)
+    candidates.extend(_balanced_slices(text))
     seen: set[str] = set()
     deduped: list[str] = []
     for c in candidates:
@@ -144,26 +119,48 @@ def _json_candidates(text: str) -> list[str]:
     return deduped
 
 
-def _slice_outer_json(text: str) -> str | None:
-    """Return the substring from the earliest { or [ to its matching close.
-    Naive — doesn't handle strings with braces — but a useful fallback when
-    a model wraps JSON in prose."""
-    starts = [
-        (text.find(open_ch), open_ch, close_ch)
-        for open_ch, close_ch in (("{", "}"), ("[", "]"))
-        if text.find(open_ch) >= 0
-    ]
-    if not starts:
-        return None
-    start, open_ch, close_ch = min(starts)
+def _balanced_slices(text: str) -> list[str]:
+    """Balanced {...} / [...] substrings in position order, for JSON wrapped
+    in prose. Quote-aware, so brackets inside JSON strings don't truncate."""
+    out: list[str] = []
+    i = 0
+    while i < len(text) and len(out) < _MAX_SLICE_CANDIDATES:
+        if text[i] in "{[":
+            end = _match_balanced(text, i)
+            if end is not None:
+                out.append(text[i : end + 1])
+                i = end + 1
+                continue
+        i += 1
+    return out
+
+
+def _match_balanced(text: str, start: int) -> int | None:
+    """Index of the close matching text[start] ('{' or '['), skipping string
+    contents. Inner pairs of the same type balance out, so counting one
+    bracket kind suffices for well-formed JSON."""
+    open_ch = text[start]
+    close_ch = "}" if open_ch == "{" else "]"
     depth = 0
+    in_str = False
+    escaped = False
     for i in range(start, len(text)):
-        if text[i] == open_ch:
+        c = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == open_ch:
             depth += 1
-        elif text[i] == close_ch:
+        elif c == close_ch:
             depth -= 1
             if depth == 0:
-                return text[start : i + 1]
+                return i
     return None
 
 
