@@ -53,7 +53,10 @@ def _enum_or(
 ) -> str | None:
     # isinstance first: `x in frozenset` raises TypeError on unhashable input.
     v = d.get(key, default)
-    return v if isinstance(v, str) and v in allowed else default
+    if not isinstance(v, str):
+        return default
+    v = v.strip().lower()
+    return v if v in allowed else default
 
 
 def _str_or_none(d: dict[str, Any], key: str) -> str | None:

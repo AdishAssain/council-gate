@@ -125,3 +125,15 @@ def test_overall_verdict_from_dict_unhashable_values_default():
     o = OverallVerdict.from_dict({"recommendation": ["block"], "severity": {}})
     assert o.recommendation == "revise"
     assert o.severity == "minor"
+
+
+def test_enum_fields_case_insensitive():
+    f = Finding.from_dict(
+        {"severity": "CRITICAL", "summary": "x", "disposition": "Defect", "confidence": "HIGH"}
+    )
+    assert f.severity == "critical"
+    assert f.disposition == "defect"
+    assert f.confidence == "high"
+    o = OverallVerdict.from_dict({"recommendation": "Block", "severity": "Major"})
+    assert o.recommendation == "block"
+    assert o.severity == "major"

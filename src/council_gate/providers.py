@@ -197,6 +197,9 @@ class OpenRouterProvider:
             raise RuntimeError(
                 f"openrouter response missing choices[0].message.content: {body!r}"[:500]
             ) from e
+        if not isinstance(raw, str) or not raw.strip():
+            # Some models return content: null (reasoning-only or filtered).
+            raise RuntimeError(f"{self.model_id}: model returned empty content")
         finish = choice.get("finish_reason", "")
         if finish == "length":
             # Hit max_tokens. JSON output is almost certainly truncated and the

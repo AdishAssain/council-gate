@@ -233,3 +233,14 @@ def test_openrouter_does_not_retry_on_401(monkeypatch):
     with pytest.raises(RuntimeError, match="Sign-in failed"):
         p.review("artifact", "prompt")
     assert calls["n"] == 1  # no retry on auth error
+
+
+def test_openrouter_null_content(monkeypatch):
+    _set_key(monkeypatch)
+    _mock_post(
+        monkeypatch,
+        {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]},
+    )
+    p = OpenRouterProvider("test/model")
+    with pytest.raises(RuntimeError, match="empty content"):
+        p.review("artifact", "prompt")

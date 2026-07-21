@@ -362,12 +362,15 @@ def _cmd_review(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Build the gate before dispatching the council: a missing gate-v2 extra
+    # must fail here, not after the seats have spent API money.
+    gate = _build_gate(args.gate_version, threshold=args.threshold)
+
     reviews = council.run(artifact_text, system_prompt)
 
     if args.save_raw is not None:
         _save_raw_reviews(args.save_raw, args.artifact.stem, reviews)
 
-    gate = _build_gate(args.gate_version, threshold=args.threshold)
     v = gate.evaluate(reviews)
 
     # Build the markdown report into a string.
