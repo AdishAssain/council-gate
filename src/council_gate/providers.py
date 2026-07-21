@@ -6,6 +6,7 @@ catalog under one API key). They share a duck-typed shape: an instance has
 `model_id`, `provider`, and a `review(artifact, system_prompt) -> Review`
 method. No ABC; the Council orchestrator only cares about the call shape.
 """
+import logging
 import os
 import shutil
 import subprocess
@@ -14,9 +15,55 @@ from pathlib import Path
 from typing import Protocol
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
-from council_gate.parsing import parse_findings
+from council_gate.parsing import parse as parse_findings
 from council_gate.types import Review
+
+log = logging.getLogger(__name__)
+
+# Frontier models write verbose rationales even on tiny artifacts, so the
+# floor is sized for typical review output (~15-30 findings with rationale +
+# evidence) rather than scaled to input size. Ceiling keeps runaways from
+# silently burning credits.
+_MAX_TOKENS_FLOOR = 8000
+_MAX_TOKENS_CEIL = 16000
+
+
+def _max_tokens_for(artifact: str) -> int:
+    override = os.environ.get("COUNCIL_MAX_TOKENS")
+    if override:
+        try:
+            return max(500, int(override))
+        except ValueError:
+            log.warning("COUNCIL_MAX_TOKENS=%r is not an int, ignoring", override)
+    return min(_MAX_TOKENS_CEIL, max(_MAX_TOKENS_FLOOR, len(artifact) // 4))
+
+
+class _RetryableHTTPError(RuntimeError):
+    """Marker for transient HTTP failures tenacity should retry.
+
+    Auth/quota/permanent errors raise plain RuntimeError and skip retry.
+    Subclasses RuntimeError so callers (and tests) catching RuntimeError
+    still see the final exhausted-retries failure.
+    """
+
+
+def _is_retryable_status(code: int) -> bool:
+    return code == 429 or 500 <= code < 600
+
+
+_RETRYABLE_HTTPX_ERRORS = (
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.RemoteProtocolError,
+)
 
 
 class Provider(Protocol):
@@ -55,6 +102,12 @@ class CodexProvider:
                 return self._exec(prompt, Path(td))
         return self._exec(prompt, self.repo_root)
 
+    @retry(
+        retry=retry_if_exception_type(subprocess.TimeoutExpired),
+        wait=wait_exponential_jitter(initial=1.0, max=10.0),
+        stop=stop_after_attempt(2),
+        reraise=True,
+    )
     def _exec(self, prompt: str, root: Path) -> Review:
         result = subprocess.run(
             [
@@ -98,13 +151,21 @@ class OpenRouterProvider:
         self._api_key = api_key
         self._timeout = timeout_s
 
+    @retry(
+        retry=retry_if_exception_type((_RetryableHTTPError, *_RETRYABLE_HTTPX_ERRORS)),
+        wait=wait_exponential_jitter(initial=0.5, max=8.0),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
     def review(self, artifact: str, system_prompt: str) -> Review:
+        max_tok = _max_tokens_for(artifact)
         payload = {
             "model": self.model_id,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": artifact},
             ],
+            "max_tokens": max_tok,
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -114,6 +175,10 @@ class OpenRouterProvider:
         if resp.status_code >= 400:
             # Friendly error mapping; the council surfaces this on Review.error.
             short = self._friendly_http_error(resp)
+            if _is_retryable_status(resp.status_code):
+                # Tenacity catches this and retries; non-retryable errors
+                # raise plain RuntimeError below and fail fast.
+                raise _RetryableHTTPError(f"{self.model_id}: {short}")
             raise RuntimeError(f"{self.model_id}: {short}")
         body = resp.json()
         # OpenRouter sometimes returns 200 with {"error": ...} (rate limit,
@@ -124,11 +189,23 @@ class OpenRouterProvider:
             msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
             raise RuntimeError(f"openrouter returned 200 with error: {msg[:300]}")
         try:
-            raw = body["choices"][0]["message"]["content"]
+            choice = body["choices"][0]
+            raw = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as e:
             raise RuntimeError(
                 f"openrouter response missing choices[0].message.content: {body!r}"[:500]
             ) from e
+        finish = choice.get("finish_reason", "")
+        if finish == "length":
+            # Hit max_tokens. JSON output is almost certainly truncated and the
+            # parser will fail; surface this in the report rather than silently
+            # dropping findings.
+            log.warning(
+                "%s: response truncated at max_tokens=%d — raise via COUNCIL_MAX_TOKENS",
+                self.model_id,
+                max_tok,
+            )
+            raw = f"[TRUNCATED at max_tokens={max_tok}]\n{raw}"
         return Review(
             model_id=self.model_id,
             provider=self.provider,

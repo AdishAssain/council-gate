@@ -13,6 +13,7 @@ from council_gate.council import Council
 from council_gate.gate import (
     CORRELATED_BLINDSPOT_DIMENSIONS,
     EntropyGate,
+    EntropyGateV2,
     GateVerdict,
     Verdict,
 )
@@ -26,6 +27,42 @@ BUNDLED_MODES = ("eng", "proposal", "analysis", "general")
 def _config_path() -> Path:
     base = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
     return base / "council-gate" / ".env"
+
+
+def _build_gate(version: str, threshold: float) -> EntropyGate | EntropyGateV2:
+    if version == "v2":
+        try:
+            from council_gate.embeddings import SentenceTransformerEmbedder
+        except ImportError as e:
+            raise SystemExit(
+                "council-gate: --gate-version v2 needs the gate-v2 extra.\n"
+                "Install: pip install 'council-gate[gate-v2]'"
+            ) from e
+        return EntropyGateV2(embedder=SentenceTransformerEmbedder(), threshold=threshold)
+    return EntropyGate(threshold=threshold)
+
+
+def _save_raw_reviews(out_dir: Path, artifact_stem: str, reviews: list[Review]) -> None:
+    """Dump each reviewer's raw + parsed output to <out_dir>/<artifact>/<model>.json."""
+    import json as _json
+    from datetime import datetime
+
+    target = out_dir / artifact_stem
+    target.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).isoformat()
+    for r in reviews:
+        safe_id = r.model_id.replace("/", "__")
+        payload = {
+            "model_id": r.model_id,
+            "provider": r.provider,
+            "timestamp": stamp,
+            "raw_text": r.raw_text,
+            "parsed_findings": [f.to_dict() for f in r.findings],
+            "error": r.error,
+        }
+        (target / f"{safe_id}.json").write_text(
+            _json.dumps(payload, indent=2), encoding="utf-8"
+        )
 
 
 def _load_env() -> None:
@@ -322,7 +359,11 @@ def _cmd_review(args: argparse.Namespace) -> int:
         return 2
 
     reviews = council.run(artifact_text, system_prompt)
-    gate = EntropyGate(threshold=args.threshold)
+
+    if args.save_raw is not None:
+        _save_raw_reviews(args.save_raw, args.artifact.stem, reviews)
+
+    gate = _build_gate(args.gate_version, threshold=args.threshold)
     v = gate.evaluate(reviews)
 
     # Build the markdown report into a string.
@@ -574,6 +615,25 @@ def main() -> int:
         "--print",
         action="store_true",
         help="In addition to saving the report, also print it to stdout.",
+    )
+    review.add_argument(
+        "--gate-version",
+        choices=("v1", "v2"),
+        default=os.environ.get("COUNCIL_GATE_VERSION", "v1"),
+        help=(
+            "v1 (default) = flat Jaccard; v2 = severity-weighted entropy with "
+            "semantic clustering. v2 needs `pip install council-gate[gate-v2]`."
+        ),
+    )
+    review.add_argument(
+        "--save-raw",
+        type=Path,
+        default=None,
+        help=(
+            "Directory to dump per-reviewer raw output + parsed findings as JSON. "
+            "Useful for debugging parser failures and for building eval sets. "
+            "Off by default."
+        ),
     )
     review.add_argument(
         "--verbose",
