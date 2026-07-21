@@ -33,11 +33,6 @@ Return a single JSON object with this shape, and nothing else (no preamble, no t
 
 ```json
 {
-  "overall": {
-    "rationale": "one sentence: your top-level read on whether this is sound as-is",
-    "severity": "major",
-    "recommendation": "revise"
-  },
   "findings": [
     {
       "location": "file:line or section ref, or null",
@@ -49,7 +44,12 @@ Return a single JSON object with this shape, and nothing else (no preamble, no t
       "severity": "major",
       "confidence": "high"
     }
-  ]
+  ],
+  "overall": {
+    "rationale": "one sentence: your top-level read on whether this is sound as-is",
+    "severity": "major",
+    "recommendation": "revise"
+  }
 }
 ```
 

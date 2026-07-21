@@ -161,3 +161,24 @@ def test_enum_fields_case_insensitive():
     o = OverallVerdict.from_dict({"recommendation": "Block", "severity": "Major"})
     assert o.recommendation == "block"
     assert o.severity == "major"
+
+
+def test_review_json_schema_strict_eligible():
+    from council_gate.types import review_json_schema
+
+    schema = review_json_schema()
+
+    def check(obj):
+        assert obj["additionalProperties"] is False
+        assert set(obj["required"]) == set(obj["properties"])
+
+    check(schema)
+    check(schema["properties"]["findings"]["items"])
+    check(schema["properties"]["overall"])
+    finding = schema["properties"]["findings"]["items"]["properties"]
+    assert list(finding) == [
+        "location", "evidence_quote", "summary", "rationale",
+        "category", "disposition", "severity", "confidence",
+    ]
+    assert "unspecified" not in finding["category"]["enum"]
+    assert list(schema["properties"]) == ["findings", "overall"]
