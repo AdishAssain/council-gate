@@ -97,3 +97,150 @@ def test_openrouter_provider_inferred_from_model_id(monkeypatch):
     _set_key(monkeypatch)
     p = OpenRouterProvider("meta-llama/llama-3.3-70b-instruct")
     assert p.provider == "meta-llama"
+
+
+def test_openrouter_sets_max_tokens_in_payload(monkeypatch):
+    _set_key(monkeypatch)
+    captured: dict = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return httpx.Response(
+            status_code=200,
+            content=_json.dumps(
+                {"choices": [{"message": {"content": "[CRITICAL] x:1 — y"}}]}
+            ).encode(),
+            headers={"content-type": "application/json"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    p = OpenRouterProvider("openai/gpt-test")
+    p.review("artifact body", "system prompt")
+    assert "max_tokens" in captured["json"]
+    assert captured["json"]["max_tokens"] >= 4000  # floor
+
+
+def test_openrouter_max_tokens_override_via_env(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_MAX_TOKENS", "8192")
+    captured: dict = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return httpx.Response(
+            status_code=200,
+            content=_json.dumps(
+                {"choices": [{"message": {"content": "ok"}}]}
+            ).encode(),
+            headers={"content-type": "application/json"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    p = OpenRouterProvider("openai/gpt-test")
+    p.review("a", "b")
+    assert captured["json"]["max_tokens"] == 8192
+
+
+def test_openrouter_flags_truncated_output(monkeypatch):
+    _set_key(monkeypatch)
+    _mock_post(
+        monkeypatch,
+        {
+            "choices": [
+                {
+                    "message": {"content": '{"findings": [{"severity": "crit'},
+                    "finish_reason": "length",
+                }
+            ]
+        },
+    )
+    p = OpenRouterProvider("openai/gpt-test")
+    review = p.review("artifact", "prompt")
+    assert "TRUNCATED" in review.raw_text
+
+
+def _sequence_post(monkeypatch, responses: list[tuple[int, dict]]):
+    """Mock httpx.post to return responses in order, raising IndexError if
+    called more times than expected — that surfaces missing retries."""
+    calls = {"n": 0}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        status, body = responses[calls["n"]]
+        calls["n"] += 1
+        return httpx.Response(
+            status_code=status,
+            content=_json.dumps(body).encode(),
+            headers={"content-type": "application/json"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    return calls
+
+
+def test_openrouter_retries_on_429_then_succeeds(monkeypatch):
+    _set_key(monkeypatch)
+    success_body = {
+        "choices": [{"message": {"content": "[CRITICAL] x:1 — y"}}]
+    }
+    calls = _sequence_post(
+        monkeypatch,
+        [
+            (429, {"error": "rate limited"}),
+            (200, success_body),
+        ],
+    )
+    p = OpenRouterProvider("openai/gpt-test")
+    review = p.review("artifact", "prompt")
+    assert calls["n"] == 2
+    assert "y" in review.raw_text
+
+
+def test_openrouter_retries_on_503_then_succeeds(monkeypatch):
+    _set_key(monkeypatch)
+    success_body = {"choices": [{"message": {"content": "ok"}}]}
+    calls = _sequence_post(
+        monkeypatch,
+        [
+            (503, {"error": "service unavailable"}),
+            (503, {"error": "still unavailable"}),
+            (200, success_body),
+        ],
+    )
+    p = OpenRouterProvider("openai/gpt-test")
+    p.review("artifact", "prompt")
+    assert calls["n"] == 3
+
+
+def test_openrouter_gives_up_after_max_attempts(monkeypatch):
+    _set_key(monkeypatch)
+    calls = _sequence_post(
+        monkeypatch,
+        [(500, {"error": "boom"})] * 3,
+    )
+    p = OpenRouterProvider("openai/gpt-test")
+    with pytest.raises(RuntimeError):
+        p.review("artifact", "prompt")
+    assert calls["n"] == 3  # 3 attempts, no more
+
+
+def test_openrouter_does_not_retry_on_401(monkeypatch):
+    _set_key(monkeypatch)
+    calls = _sequence_post(monkeypatch, [(401, {"error": "unauthorized"})])
+    p = OpenRouterProvider("openai/gpt-test")
+    with pytest.raises(RuntimeError, match="Sign-in failed"):
+        p.review("artifact", "prompt")
+    assert calls["n"] == 1  # no retry on auth error
+
+
+def test_openrouter_null_content(monkeypatch):
+    _set_key(monkeypatch)
+    _mock_post(
+        monkeypatch,
+        {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]},
+    )
+    p = OpenRouterProvider("test/model")
+    with pytest.raises(RuntimeError, match="empty content"):
+        p.review("artifact", "prompt")
