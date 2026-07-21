@@ -10,7 +10,7 @@
 >
 > ⚠️ **Pre-stable.** The `1.x` line is functionally complete, but CLI flags / env var names / report format aren't frozen until `2.0`. Pin a version in CI. See [CHANGELOG → Stability](CHANGELOG.md#stability).
 
-**`council-gate` runs your document, proposal, or PR diff past 3+ AI models from different providers (Claude, GPT, Gemini, Llama, …), then tells you where they agree, where they disagree, and what they're statistically likely to have missed together.** Single-model reviews are biased toward their own outputs — consensus from one model isn't a real signal.
+**`council-gate` runs your document, proposal, or PR diff past 3+ AI models from different providers (Claude, GPT, Gemini, DeepSeek, Kimi, …), then tells you where they agree, where they disagree, and what they're statistically likely to have missed together.** Single-model reviews are biased toward their own outputs — consensus from one model isn't a real signal.
 
 ---
 
@@ -105,19 +105,23 @@ Read the individual reviews below before acting.
 
 ## What each reviewer said
 
-### claude-haiku-4-5
-| Severity | Where | Issue |
-|---|---|---|
-| MAJOR | Section 2 | Causal claim ("X drives Y") not supported by cited data |
-| MINOR | Abstract | "Significantly improves" is unquantified |
+### claude-sonnet-5
+_Overall: **revise** · worst severity major_ — Core argument is sound but two claims lack support.
+
+| Severity | Kind | Conf | Where | Issue |
+|---|---|---|---|---|
+| MAJOR | defect | high | Section 2 | Causal claim ("X drives Y") not supported by cited data |
+| MINOR | gap | med | Abstract | "Significantly improves" is unquantified |
 …
 ```
 
+Each finding carries a **severity** (calibrated against anchors shared by every reviewer), a **kind** (`defect` / `risk` / `gap` / `question` / `endorse`), and the reviewer's **confidence**. Each reviewer also gives an artifact-level **overall verdict** (`block` / `revise` / `accept`).
+
 Three verdicts:
 
-- **`ESCALATE`** — reviewers disagreed; needs human judgement.
+- **`ESCALATE`** — reviewers disagreed on the findings, **or** their overall verdicts conflict (one would block what another would accept). Needs human judgement.
 - **`CONSENSUS_CHECK`** — reviewers agreed, *but* the report ships with a checklist of dimensions where frontier AI models tend to share blindspots. Don't trust agreement as approval.
-- **`INCONCLUSIVE`** — too few reviewers returned usable output (network, quota, etc).
+- **`INSUFFICIENT`** — too few reviewers returned usable output (network, quota, etc).
 
 ---
 
@@ -192,9 +196,11 @@ Lives at `~/.config/council-gate/.env` (XDG-compliant). `council-gate` never rea
 
 Three keys matter:
 
-- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** (Haiku, GPT-mini, Gemini Flash, Llama, Qwen, DeepSeek) — works on a $1–2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
+- `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** across six model families (OpenAI, Google, Anthropic, DeepSeek, Moonshot, Zhipu) — works on a $1–2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
 - `COUNCIL_GENERATOR_PROVIDER` — slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. The corresponding seats are excluded from the council.
 - `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default `0.35`.
+- `COUNCIL_STRUCTURED_OUTPUT` — ask providers to enforce the review-form JSON schema server-side (default on; seats that don't support it fall back automatically). Set `0` to disable.
+- `COUNCIL_GATE_VERSION` — `v1` (default, token-overlap) or `v2` (severity-weighted semantic clustering; needs `pip install 'council-gate[gate-v2]'`, a one-time ~500 MB model download).
 
 For an extra council seat using OpenAI's Codex CLI, install and authenticate `codex` separately ([openai/codex](https://github.com/openai/codex)).
 
@@ -216,7 +222,7 @@ To bypass both, pass `--skip-redaction-check`. Don't use this flag unless you've
 
 `council-gate` is a CLI; host integrations are thin wrappers that set `COUNCIL_GENERATOR_PROVIDER` before invoking it.
 
-- **Claude Code plugin** — `.claude-plugin/` (use `/plugin install council-gate`)
+- **Claude Code plugin** — `.claude-plugin/` (blocked by an upstream marketplace bug; use the [manual skill drop](#claude-code-skill-in-chat-review) until it ships)
 - **Claude Code skill** — `integrations/claude-code/`
 - **Codex CLI** — `integrations/codex/`
 - **GitHub Action** — `integrations/github-action/`
@@ -241,7 +247,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, where help is most needed,
 
 ## How disagreement is measured
 
-Pairwise Jaccard distance over normalized token sets extracted from each reviewer's findings, averaged across reviewer pairs. The metric measures lexical overlap, not semantic agreement — sufficient for the asymmetric gate's purpose, since high disagreement still means high disagreement, and low disagreement is *already* treated as suspect rather than as approval.
+Two layers, both deterministic (no LLM judge in the verdict path):
+
+1. **Overall-verdict conflict.** Every reviewer files an artifact-level recommendation (`block` / `revise` / `accept`). If one reviewer would block what another would accept, the gate escalates immediately — reviewers can produce near-identical findings and still disagree on whether the artifact is acceptable.
+2. **Finding-level divergence.** The default (`v1`) gate uses pairwise Jaccard distance over token sets from each reviewer's findings — lexical overlap, crude but sufficient for the asymmetric design, since low disagreement is *already* treated as suspect rather than as approval. The optional `v2` gate (`pip install 'council-gate[gate-v2]'`) clusters findings semantically and computes severity-weighted entropy, so two reviewers describing the same flaw in different words count as agreement and disagreement over nits weighs less than disagreement over criticals.
 
 ## License
 
