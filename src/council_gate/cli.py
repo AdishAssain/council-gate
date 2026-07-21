@@ -454,14 +454,22 @@ def _build_markdown_report(
         out.append("## What each reviewer said\n")
         for r in ok:
             out.append(f"### {r.model_id}\n")
+            if r.overall is not None:
+                o = r.overall
+                rationale = o.rationale.strip()
+                line = f"_Overall: **{o.recommendation}** · worst severity {o.severity}_"
+                if rationale:
+                    line += f" — {rationale}"
+                out.append(line + "\n")
             if r.findings:
-                out.append("| Severity | Where | Issue |")
-                out.append("|---|---|---|")
+                out.append("| Severity | Kind | Conf | Where | Issue |")
+                out.append("|---|---|---|---|---|")
                 for f in r.findings:
                     loc = f.location or "—"
                     summary = f.summary.replace("|", "\\|")
+                    conf = f.confidence or "—"
                     out.append(
-                        f"| **{f.severity.upper()}** | `{loc}` | {summary} |"
+                        f"| **{f.severity.upper()}** | {f.disposition} | {conf} | `{loc}` | {summary} |"
                     )
                 out.append("")
             else:
