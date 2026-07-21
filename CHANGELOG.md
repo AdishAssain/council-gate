@@ -6,6 +6,24 @@
 >
 > Until 2.0, treat version bumps as 0Ver-style: any release can change behaviour. Read the entry below before upgrading.
 
+## 1.3.0 — 2026-07-21
+
+The structured-review release. Additive and backward-compatible; reports gain columns, no flags change meaning.
+
+**Calibrated review form.** All four review modes now share one form: anchored severity definitions with a "pick the lower level" tie-break (severity is calibrated across reviewers, not self-scaled), a per-finding `disposition` (`defect`/`risk`/`gap`/`question`/`endorse`) and `confidence` (`low`/`med`/`high`), one atomic claim per finding, and a per-reviewer artifact-level `overall` verdict (`block`/`revise`/`accept`). Fields are ordered so models quote the artifact before claiming and justify before judging. Reports render the new columns plus each reviewer's overall stance.
+
+**Gate reads overall verdicts.** If one reviewer would block what another would accept, the gate escalates — regardless of how similar their findings look. This catches disagreement that finding-overlap metrics are structurally blind to. Recommendations are recorded on every verdict.
+
+**Optional gate v2** (`pip install 'council-gate[gate-v2]'`, `COUNCIL_GATE_VERSION=v2`): severity-weighted entropy over semantically clustered findings — same-issue-different-words counts as agreement; nit disagreements weigh less than critical ones. The default gate remains v1; the extra is a ~500 MB local model download, hence opt-in.
+
+**Provider-side structured outputs.** Seats that support OpenRouter's `json_schema` response format get the form enforced server-side (`strict`, `require_parameters`); seats that don't, fall back to prompt-guided JSON automatically. `COUNCIL_STRUCTURED_OUTPUT=0` disables. Lenient parsing is retained as the universal validator either way, and now survives fenced blocks with any language tag, braces inside JSON strings, prose-wrapped payloads, uppercase enum values, and models that return `content: null`.
+
+**Robustness.** A missing `gate-v2` extra now fails before the council spends API money, not after; unknown `COUNCIL_GATE_VERSION` values error instead of silently running v1; model-controlled text is escaped in report markdown; `--save-raw` dumps include the overall verdict.
+
+**Refreshed default council** (`env.example`): six model families — GPT-5.6, Gemini 3.5, Claude Sonnet 5, GLM-5.2, DeepSeek V4, Kimi K3 — replacing the retired Llama seat and superseded Qwen 2.5.
+
+Test suite: 50 → 132 tests; `mypy --strict` clean.
+
 ## 1.2.4 — 2026-05-07
 
 Docs only — no PyPI republish (wheel is identical to 1.2.3).
