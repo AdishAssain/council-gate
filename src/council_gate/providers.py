@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from tenacity import (
@@ -23,7 +23,7 @@ from tenacity import (
 )
 
 from council_gate.parsing import parse_review
-from council_gate.types import Review
+from council_gate.types import Review, review_json_schema
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class _RetryableHTTPError(RuntimeError):
     Subclasses RuntimeError so callers (and tests) catching RuntimeError
     still see the final exhausted-retries failure.
     """
+
+
+class _SchemaUnsupported(RuntimeError):
+    """The provider rejected a structured-output request."""
 
 
 def _is_retryable_status(code: int) -> bool:
@@ -153,12 +157,6 @@ class OpenRouterProvider:
         self._api_key = api_key
         self._timeout = timeout_s
 
-    @retry(
-        retry=retry_if_exception_type((_RetryableHTTPError, *_RETRYABLE_HTTPX_ERRORS)),
-        wait=wait_exponential_jitter(initial=0.5, max=8.0),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
     def review(self, artifact: str, system_prompt: str) -> Review:
         max_tok = _max_tokens_for(artifact)
         payload = {
@@ -169,6 +167,42 @@ class OpenRouterProvider:
             ],
             "max_tokens": max_tok,
         }
+        if os.environ.get("COUNCIL_STRUCTURED_OUTPUT", "1") == "1":
+            structured = payload | {
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "review_form",
+                        "strict": True,
+                        "schema": review_json_schema(),
+                    },
+                },
+                # Route only to providers that honor response_format; without
+                # this a provider may silently drop it.
+                "provider": {"require_parameters": True},
+            }
+            try:
+                raw = self._complete(structured, max_tok, schema=True)
+            except _SchemaUnsupported:
+                raw = self._complete(payload, max_tok)
+        else:
+            raw = self._complete(payload, max_tok)
+        findings, overall = parse_review(raw)
+        return Review(
+            model_id=self.model_id,
+            provider=self.provider,
+            findings=findings,
+            raw_text=raw,
+            overall=overall,
+        )
+
+    @retry(
+        retry=retry_if_exception_type((_RetryableHTTPError, *_RETRYABLE_HTTPX_ERRORS)),
+        wait=wait_exponential_jitter(initial=0.5, max=8.0),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    def _complete(self, payload: dict[str, Any], max_tok: int, schema: bool = False) -> str:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "X-Title": "council-gate",
@@ -181,6 +215,10 @@ class OpenRouterProvider:
                 # Tenacity catches this and retries; non-retryable errors
                 # raise plain RuntimeError below and fail fast.
                 raise _RetryableHTTPError(f"{self.model_id}: {short}")
+            if schema and resp.status_code in (400, 404, 422):
+                # Model/provider rejected the schema request; caller retries
+                # without it. Auth/quota errors above fail fast either way.
+                raise _SchemaUnsupported(f"{self.model_id}: {short}")
             raise RuntimeError(f"{self.model_id}: {short}")
         body = resp.json()
         # OpenRouter sometimes returns 200 with {"error": ...} (rate limit,
@@ -211,14 +249,7 @@ class OpenRouterProvider:
                 max_tok,
             )
             raw = f"[TRUNCATED at max_tokens={max_tok}]\n{raw}"
-        findings, overall = parse_review(raw)
-        return Review(
-            model_id=self.model_id,
-            provider=self.provider,
-            findings=findings,
-            raw_text=raw,
-            overall=overall,
-        )
+        return raw
 
     @staticmethod
     def _friendly_http_error(resp: httpx.Response) -> str:

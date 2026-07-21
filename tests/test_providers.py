@@ -244,3 +244,72 @@ def test_openrouter_null_content(monkeypatch):
     p = OpenRouterProvider("test/model")
     with pytest.raises(RuntimeError, match="empty content"):
         p.review("artifact", "prompt")
+
+
+_OK_BODY = {
+    "choices": [
+        {
+            "message": {"content": '{"findings": [], "overall": {"rationale": "ok", "severity": "nit", "recommendation": "accept"}}'},
+            "finish_reason": "stop",
+        }
+    ]
+}
+
+
+def _mock_post_seq(monkeypatch, responses):
+    """Sequential responses; returns the list of captured request payloads."""
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        status, body = responses[min(len(calls) - 1, len(responses) - 1)]
+        return httpx.Response(status, json=body, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    return calls
+
+
+def test_structured_output_requested(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "1")
+    calls = _mock_post_seq(monkeypatch, [(200, _OK_BODY)])
+    p = OpenRouterProvider("test/model")
+    r = p.review("artifact", "prompt")
+    assert len(calls) == 1
+    rf = calls[0]["response_format"]
+    assert rf["type"] == "json_schema"
+    assert rf["json_schema"]["strict"] is True
+    assert calls[0]["provider"] == {"require_parameters": True}
+    assert r.overall is not None and r.overall.recommendation == "accept"
+
+
+def test_structured_output_falls_back_when_rejected(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "1")
+    calls = _mock_post_seq(
+        monkeypatch, [(400, {"error": {"message": "response_format not supported"}}), (200, _OK_BODY)]
+    )
+    p = OpenRouterProvider("test/model")
+    r = p.review("artifact", "prompt")
+    assert len(calls) == 2
+    assert "response_format" in calls[0]
+    assert "response_format" not in calls[1]
+    assert r.ok
+
+
+def test_structured_output_kill_switch(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "0")
+    calls = _mock_post_seq(monkeypatch, [(200, _OK_BODY)])
+    OpenRouterProvider("test/model").review("artifact", "prompt")
+    assert len(calls) == 1
+    assert "response_format" not in calls[0]
+
+
+def test_structured_output_no_fallback_on_auth_error(monkeypatch):
+    _set_key(monkeypatch)
+    calls = _mock_post_seq(monkeypatch, [(401, {"error": {"message": "bad key"}})])
+    p = OpenRouterProvider("test/model")
+    with pytest.raises(RuntimeError, match="Sign-in failed"):
+        p.review("artifact", "prompt")
+    assert len(calls) == 1

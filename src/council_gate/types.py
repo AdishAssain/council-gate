@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 Severity = Literal["critical", "major", "minor", "nit"]
 
@@ -23,29 +23,11 @@ Disposition = Literal["defect", "risk", "gap", "question", "endorse"]
 Confidence = Literal["low", "med", "high"]
 Recommendation = Literal["block", "revise", "accept"]
 
-_VALID_SEVERITIES: frozenset[str] = frozenset(("critical", "major", "minor", "nit"))
-_VALID_CATEGORIES: frozenset[str] = frozenset(
-    (
-        "correctness",
-        "missing_evidence",
-        "method_gap",
-        "edge_case",
-        "missing_data_handling",
-        "security",
-        "performance",
-        "clarity",
-        "scope",
-        "novelty",
-        "reproducibility",
-        "nit",
-        "unspecified",
-    )
-)
-_VALID_DISPOSITIONS: frozenset[str] = frozenset(
-    ("defect", "risk", "gap", "question", "endorse")
-)
-_VALID_CONFIDENCES: frozenset[str] = frozenset(("low", "med", "high"))
-_VALID_RECOMMENDATIONS: frozenset[str] = frozenset(("block", "revise", "accept"))
+_VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
+_VALID_CATEGORIES: frozenset[str] = frozenset(get_args(Category))
+_VALID_DISPOSITIONS: frozenset[str] = frozenset(get_args(Disposition))
+_VALID_CONFIDENCES: frozenset[str] = frozenset(get_args(Confidence))
+_VALID_RECOMMENDATIONS: frozenset[str] = frozenset(get_args(Recommendation))
 
 
 def _enum_or(
@@ -146,3 +128,63 @@ class Review:
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+def review_json_schema() -> dict[str, Any]:
+    """Strict-mode JSON schema for the review form.
+
+    Property order is generation order for constrained decoders, so it
+    mirrors the prompts: evidence -> claim -> rationale -> judgments,
+    findings before the overall verdict. `unspecified` is an internal
+    fallback, not offered to models.
+    """
+    finding = {
+        "type": "object",
+        "properties": {
+            "location": {"type": ["string", "null"]},
+            "evidence_quote": {
+                "type": ["string", "null"],
+                "description": "short verbatim quote from the artifact",
+            },
+            "summary": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "one atomic declarative sentence",
+            },
+            "rationale": {"type": "string"},
+            "category": {"enum": [c for c in get_args(Category) if c != "unspecified"]},
+            "disposition": {"enum": list(get_args(Disposition))},
+            "severity": {"enum": list(get_args(Severity))},
+            "confidence": {"enum": list(get_args(Confidence))},
+        },
+        "required": [
+            "location",
+            "evidence_quote",
+            "summary",
+            "rationale",
+            "category",
+            "disposition",
+            "severity",
+            "confidence",
+        ],
+        "additionalProperties": False,
+    }
+    overall = {
+        "type": "object",
+        "properties": {
+            "rationale": {"type": "string"},
+            "severity": {"enum": list(get_args(Severity))},
+            "recommendation": {"enum": list(get_args(Recommendation))},
+        },
+        "required": ["rationale", "severity", "recommendation"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "findings": {"type": "array", "items": finding, "maxItems": 20},
+            "overall": overall,
+        },
+        "required": ["findings", "overall"],
+        "additionalProperties": False,
+    }
