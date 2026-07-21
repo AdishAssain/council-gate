@@ -34,7 +34,7 @@ _LINE_RE = re.compile(
     re.MULTILINE,
 )
 
-_FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)```", re.DOTALL | re.IGNORECASE)
+_FENCE_RE = re.compile(r"```[a-zA-Z0-9]*\s*(.+?)```", re.DOTALL)
 
 
 def parse_findings(text: str) -> list[Finding]:

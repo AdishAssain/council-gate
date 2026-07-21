@@ -122,3 +122,12 @@ def test_parse_falls_back_to_legacy_when_no_json():
 def test_parse_returns_empty_for_unstructured():
     findings = parse("Just some prose without structure.")
     assert findings == []
+
+
+def test_json_inside_fence_with_other_language_tag():
+    text = """```javascript
+{"findings": [{"severity": "minor", "summary": "tagged fence", "category": "nit"}]}
+```"""
+    findings = parse(text)
+    assert len(findings) == 1
+    assert findings[0].summary == "tagged fence"
