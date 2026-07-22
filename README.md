@@ -100,7 +100,7 @@ Read the individual reviews below before acting.
 |---|---|
 | Verdict | ESCALATE |
 | Reviewers | 4 returned reviews · 1 errored |
-| Escalation score | 0.62 on a 0–1 scale (threshold 0.5; higher = more divergence) |
+| Escalation score | 0.62 on a 0–1 scale (threshold 0.5; higher = more likely to escalate) |
 | Mode | proposal |
 
 ## What each reviewer said
@@ -194,7 +194,7 @@ In practice, low-disagreement output ships with a checklist (`novelty`, `edge ca
 
 Lives at `~/.config/council-gate/.env` (XDG-compliant). `council-gate` never reads from the working directory; nothing lands in your repo.
 
-Three keys matter:
+The settings that matter:
 
 - `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** across six model families (OpenAI, Google, Anthropic, DeepSeek, Moonshot, Zhipu) — works on a $1–2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
 - `COUNCIL_GENERATOR_PROVIDER` — slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. The corresponding seats are excluded from the council.

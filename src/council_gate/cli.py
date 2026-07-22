@@ -449,7 +449,7 @@ def _build_markdown_report(
     out.append(f"| **Reviewers** | {len(ok)} returned reviews · {len(failed)} errored |")
     out.append(
         f"| **Escalation score** | {v.score:.2f} on a 0–1 scale "
-        f"(threshold {args.threshold:.2f}; higher = more divergence) |"
+        f"(threshold {args.threshold:.2f}; higher = more likely to escalate) |"
     )
     out.append(f"| **Mode** | {args.mode} |")
     if redaction_count:

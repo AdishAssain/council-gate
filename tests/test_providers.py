@@ -345,3 +345,12 @@ def test_malformed_body_is_retryable(monkeypatch):
     r = OpenRouterProvider("test/model").review("artifact", "prompt")
     assert len(calls) == 2  # tenacity retried the malformed body
     assert r.ok
+
+
+def test_null_response_body_is_retryable(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "0")
+    calls = _mock_post_seq(monkeypatch, [(200, None), (200, _OK_BODY)])
+    r = OpenRouterProvider("test/model").review("artifact", "prompt")
+    assert len(calls) == 2
+    assert r.ok

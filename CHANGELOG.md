@@ -10,7 +10,7 @@
 
 The learned-gate release. **Breaking** (pre-2.0 policy): the `v1`/`v2` entropy gates, `--gate-version`, `COUNCIL_GATE_VERSION`, and the `gate-v2` extra are removed.
 
-**Verdicts come from a learned classifier now.** Fresh evaluation on 140 new councils showed the calibrated review form carries the whole signal: a 14-feature logistic regression over the form (seat count, severity/disposition mix, recommendation split) outperformed every entropy/clustering configuration, the strongest tabular foundation model matched-but-not-beat it, and a frontier LLM judge scored far below it. Three models ship as JSON assets with pure-Python inference (no new dependencies, microsecond verdicts):
+**Verdicts come from a learned classifier now.** Fresh evaluation on 140 new councils showed the calibrated review form carries the whole signal: a 14-feature logistic regression over the form (seat count, severity/disposition mix, recommendation split) outperformed every entropy/clustering configuration; the strongest tabular foundation model could not beat the same features, students distilled from a TabPFN v2 teacher scored slightly higher than the direct fit, and a frontier LLM judge scored far below all of them. Three models ship as JSON assets with pure-Python inference (no new dependencies, microsecond verdicts):
 
 - `lr` (default) — logistic regression fit directly on source-derived labels. Verdict reasons cite the top contributing factors.
 - `tabpfn-lr`, `tabpfn-gb` — TabPFN-Lite models distilled from a TabPFN v2 teacher (Prior Labs License v1.1; license copy bundled). Scored slightly higher in evaluation; pick via `--gate` / `COUNCIL_GATE`.

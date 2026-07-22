@@ -227,6 +227,10 @@ class OpenRouterProvider:
             raise _RetryableHTTPError(
                 f"{self.model_id}: malformed response body from openrouter"
             ) from e
+        if not isinstance(body, dict):
+            raise _RetryableHTTPError(
+                f"{self.model_id}: malformed response body from openrouter"
+            )
         # OpenRouter sometimes returns 200 with {"error": ...} (rate limit,
         # model unavailable, content filter). Detect those before assuming
         # the OpenAI-shape choices[] is present.
