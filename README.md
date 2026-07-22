@@ -100,7 +100,7 @@ Read the individual reviews below before acting.
 |---|---|
 | Verdict | ESCALATE |
 | Reviewers | 4 returned reviews · 1 errored |
-| Disagreement | 0.62 on a 0–1 scale (threshold 0.35; higher = more divergence) |
+| Escalation score | 0.62 on a 0–1 scale (threshold 0.5; higher = more divergence) |
 | Mode | proposal |
 
 ## What each reviewer said
@@ -198,9 +198,9 @@ Three keys matter:
 
 - `COUNCIL_MODELS` — comma-separated OpenRouter model ids. Default is **cost-conscious** across six model families (OpenAI, Google, Anthropic, DeepSeek, Moonshot, Zhipu) — works on a $1–2 OpenRouter balance. Swap in flagship variants for higher-stakes reviews; see commented alternatives in `.env`.
 - `COUNCIL_GENERATOR_PROVIDER` — slug (`anthropic`, `openai`, `google`) of whichever model produced the artifact. The corresponding seats are excluded from the council.
-- `GATE_THRESHOLD` — disagreement threshold τ ∈ [0, 1] above which the gate fires escalation. Default `0.35`.
+- `GATE_THRESHOLD` — escalation-score threshold ∈ [0, 1]. Default `0.5`.
+- `COUNCIL_GATE` — verdict model: `lr` (default), `tabpfn-lr`, `tabpfn-gb`. All local, pure Python.
 - `COUNCIL_STRUCTURED_OUTPUT` — ask providers to enforce the review-form JSON schema server-side (default on; seats that don't support it fall back automatically). Set `0` to disable.
-- `COUNCIL_GATE_VERSION` — `v1` (default, token-overlap) or `v2` (severity-weighted semantic clustering; needs `pip install 'council-gate[gate-v2]'`, a one-time ~500 MB model download).
 
 For an extra council seat using OpenAI's Codex CLI, install and authenticate `codex` separately ([openai/codex](https://github.com/openai/codex)).
 
@@ -247,11 +247,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, where help is most needed,
 
 ## How disagreement is measured
 
-Two layers, both deterministic (no LLM judge in the verdict path):
+Two layers, both deterministic and fully local (no LLM judge in the verdict path, no extra downloads):
 
 1. **Overall-verdict conflict.** Every reviewer files an artifact-level recommendation (`block` / `revise` / `accept`). If one reviewer would block what another would accept, the gate escalates immediately — reviewers can produce near-identical findings and still disagree on whether the artifact is acceptable.
-2. **Finding-level divergence.** The default (`v1`) gate uses pairwise Jaccard distance over token sets from each reviewer's findings — lexical overlap, crude but sufficient for the asymmetric design, since low disagreement is *already* treated as suspect rather than as approval. The optional `v2` gate (`pip install 'council-gate[gate-v2]'`) clusters findings semantically and computes severity-weighted entropy, so two reviewers describing the same flaw in different words count as agreement and disagreement over nits weighs less than disagreement over criticals.
+2. **A learned classifier over the review form.** The gate scores escalation probability from the structured form itself — how many reviewers concurred, the severity and disposition mix of their findings, and how their recommendations split. The default `lr` model is a logistic regression whose weights ship in the package and run in pure Python, so every verdict can cite exactly which factors drove it. Two alternatives (`--gate tabpfn-lr`, `--gate tabpfn-gb`) were distilled from a TabPFN v2 teacher and scored slightly higher in evaluation; all three were selected on a held-out split against source-derived labels.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The optional `tabpfn-lr` / `tabpfn-gb` gate models are **Built with PriorLabs-TabPFN**: they were distilled from a TabPFN v2 teacher under the Prior Labs License v1.1 (Apache 2.0 derivative; a copy ships in the package as `TABPFN_LICENSE.txt`). The default `lr` gate has no third-party provenance.

@@ -32,7 +32,7 @@ def format_escalation(
         blocks.append(f"**{r.provider} ({r.model_id})**\n  {bullets}")
     return _load_template().substitute(
         artifact_name=artifact_name,
-        disagreement=f"{verdict.disagreement:.2f}",
+        disagreement=f"{verdict.score:.2f}",
         threshold=f"{threshold:.2f}",
         reviewer_summary=reviewer_summary,
         divergence_summary="\n\n".join(blocks),
