@@ -146,7 +146,7 @@ class OpenRouterProvider:
 
     BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    def __init__(self, model_id: str, timeout_s: float = 120.0) -> None:
+    def __init__(self, model_id: str, timeout_s: float = 240.0) -> None:
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             raise RuntimeError("OPENROUTER_API_KEY not set")
@@ -220,7 +220,13 @@ class OpenRouterProvider:
                 # without it. Auth/quota errors above fail fast either way.
                 raise _SchemaUnsupported(f"{self.model_id}: {short}")
             raise RuntimeError(f"{self.model_id}: {short}")
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError as e:
+            # Truncated/malformed body from the gateway — transient, retry.
+            raise _RetryableHTTPError(
+                f"{self.model_id}: malformed response body from openrouter"
+            ) from e
         # OpenRouter sometimes returns 200 with {"error": ...} (rate limit,
         # model unavailable, content filter). Detect those before assuming
         # the OpenAI-shape choices[] is present.

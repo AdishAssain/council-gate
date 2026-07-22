@@ -325,3 +325,23 @@ def test_structured_output_empty_content_falls_back(monkeypatch):
     assert len(calls) == 2
     assert "response_format" not in calls[1]
     assert r.ok
+
+
+def test_malformed_body_is_retryable(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "0")
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        if len(calls) == 1:
+            return httpx.Response(
+                200, content=b'{"choices": [{"mes', request=httpx.Request("POST", url)
+            )
+        return httpx.Response(200, json=_OK_BODY, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    r = OpenRouterProvider("test/model").review("artifact", "prompt")
+    assert len(calls) == 2  # tenacity retried the malformed body
+    assert r.ok
