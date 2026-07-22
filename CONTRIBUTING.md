@@ -17,7 +17,7 @@ Ranked by usefulness:
 `council-gate` is built on two ideas. PRs that violate them will be declined no matter how clean the code:
 
 1. **Cross-model, not cross-prompt.** Three Claudes reviewing Claude output is not adversarial. The council MUST exclude the generator's provider. Don't add a feature that lets the generator review its own output.
-2. **The entropy gate is asymmetric.** *High* disagreement is the clean signal. *Low* disagreement is **suspect consensus**, not approval — frontier LLMs share blindspots. Don't add a "green check" path that treats agreement as approval.
+2. **The gate is asymmetric.** *High* disagreement is the clean signal. *Low* disagreement is **suspect consensus**, not approval — frontier LLMs share blindspots. Don't add a "green check" path that treats agreement as approval.
 
 If you have an idea that conflicts with either, open an issue first to discuss the tradeoff.
 
@@ -71,7 +71,7 @@ For maintainers: every release is a tag like `v1.2.3` pushed to `main`. The `rel
 
 Drawn from the live TODO list:
 
-- **Embedding-based disagreement metric** — current Jaccard-on-tokens is a placeholder. Cross-model semantic similarity would catch paraphrased disagreement.
+- **Local LLM seats** — the council shouldn't be married to OpenRouter. An OpenAI-compatible provider with a configurable base URL would cover Ollama / LM Studio / llama.cpp.
 - **JSON output mode** — `--output json` for CI / connector consumption (precondition for Slack/Linear integrations).
 - **Auto-degrade** — if a model 402s mid-run, drop it and retry the rest without it.
 - **Directory / glob input** — `council-gate review ./specs/` so a "test directory" is reviewable in one call.

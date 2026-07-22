@@ -1,0 +1,7 @@
+council-gate
+Copyright (c) council-gate contributors. MIT License.
+
+The optional tabpfn-lr and tabpfn-gb gate models are Built with
+PriorLabs-TabPFN: distilled from a TabPFN v2 teacher under the
+Prior Labs License v1.1 (Apache 2.0 derivative). A copy of that
+license ships in the package as council_gate/_assets/TABPFN_LICENSE.txt.

@@ -1,5 +1,5 @@
 name: council-gate review
-description: Cross-model adversarial review of an artifact (spec, PR diff, proposal) with an asymmetric entropy gate.
+description: Cross-model adversarial review of an artifact (spec, PR diff, proposal) with an asymmetric, learned escalation gate.
 branding:
   icon: shield
   color: purple

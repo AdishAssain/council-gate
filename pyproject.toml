@@ -1,7 +1,7 @@
 [project]
 name = "council-gate"
 version = "1.4.0"
-description = "Cross-model adversarial review with an entropy gate that routes consensus vs disagreement to an explicit escalation channel."
+description = "Cross-model adversarial review with a learned gate that routes consensus vs disagreement to an explicit escalation channel."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }

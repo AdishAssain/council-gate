@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/AdishAssain/council-gate/pkgs/container/council-gate)
 
-> Cross-model adversarial review with an asymmetric entropy gate.
+> Cross-model adversarial review with an asymmetric, learned escalation gate.
 >
 > ⚠️ **Pre-stable.** The `1.x` line is functionally complete, but CLI flags / env var names / report format aren't frozen until `2.0`. Pin a version in CI. See [CHANGELOG → Stability](CHANGELOG.md#stability).
 
@@ -151,11 +151,13 @@ Three verdicts:
                 Review      Review          Review        (structured findings + raw)
                               │
                               ▼
-                       Entropy Gate
+                     Learned Gate
+             (classifier over the review form)
                               │
               ┌───────────────┴───────────────┐
               ▼                               ▼
-     disagreement ≥ τ                disagreement < τ
+    escalation score ≥ τ            escalation score < τ
+      or block-vs-accept split                │
               │                               │
               ▼                               ▼
         ESCALATE                      CONSENSUS_CHECK
@@ -163,7 +165,7 @@ Three verdicts:
     for human channel)               correlated blindspots)
 ```
 
-The two original primitives are the **council** (cross-model, not cross-prompt) and the **entropy gate** (asymmetric — only *high* disagreement is a clean signal; *low* disagreement is treated as suspect, not as approval).
+The two original primitives are the **council** (cross-model, not cross-prompt) and the **asymmetric gate** — only *high* disagreement is a clean signal; *low* disagreement is treated as suspect, not as approval.
 
 ### Why cross-model, not cross-prompt
 
@@ -173,7 +175,7 @@ Same-model self-evaluation is biased. [Panickssery et al. (2024)](https://arxiv.
 
 ### Why the gate is asymmetric
 
-The naive design — *low entropy means trust, high entropy means escalate* — is half wrong.
+The naive design — *low disagreement means trust, high disagreement means escalate* — is half wrong.
 
 [Kim et al. (2025)](https://arxiv.org/abs/2506.07962) studied 350+ LLMs and found that models agree roughly **60% of the time when both err**. The reported inter-model error correlation of r ≈ 0.77 implies an effective ensemble size of ~1.3 from three models — barely more diversified than asking one. The drivers: shared providers, shared architectures, and shared capability tier. Larger frontier models are *more* correlated even across providers, not less, because they converge on similar training distributions.
 
