@@ -12,9 +12,9 @@ from dotenv import load_dotenv
 from council_gate.council import Council
 from council_gate.gate import (
     CORRELATED_BLINDSPOT_DIMENSIONS,
-    EntropyGate,
-    EntropyGateV2,
+    GATE_MODELS,
     GateVerdict,
+    LearnedGate,
     Verdict,
 )
 from council_gate.providers import CodexProvider, OpenRouterProvider, Provider
@@ -29,28 +29,13 @@ def _config_path() -> Path:
     return base / "council-gate" / ".env"
 
 
-def _build_gate(version: str, threshold: float) -> EntropyGate | EntropyGateV2:
-    if version == "v2":
-        # sentence-transformers loads lazily; check up front so a missing
-        # extra fails here, not after the council has spent API money.
-        import importlib.util
-
-        if importlib.util.find_spec("sentence_transformers") is None:
-            raise SystemExit(
-                "council-gate: --gate-version v2 needs the gate-v2 extra.\n"
-                "Install: pip install 'council-gate[gate-v2]'"
-            )
-        from council_gate.embeddings import SentenceTransformerEmbedder
-
-        return EntropyGateV2(embedder=SentenceTransformerEmbedder(), threshold=threshold)
-    if version == "v1":
-        return EntropyGate(threshold=threshold)
-    # argparse validates choices only for CLI args; COUNCIL_GATE_VERSION
-    # feeds the default and would otherwise fall back to v1 silently.
-    raise SystemExit(
-        f"council-gate: unknown gate version {version!r} — use 'v1' or 'v2' "
-        "(via --gate-version or COUNCIL_GATE_VERSION)."
-    )
+def _build_gate(model: str, threshold: float) -> LearnedGate:
+    # argparse validates choices only for CLI args; COUNCIL_GATE feeds the
+    # default and would otherwise reach LearnedGate with an unknown name.
+    try:
+        return LearnedGate(model=model, threshold=threshold)
+    except ValueError as e:
+        raise SystemExit(f"council-gate: {e}") from e
 
 
 def _save_raw_reviews(out_dir: Path, artifact_stem: str, reviews: list[Review]) -> None:
@@ -372,7 +357,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
     # Build the gate before dispatching the council: a missing gate-v2 extra
     # must fail here, not after the seats have spent API money.
-    gate = _build_gate(args.gate_version, threshold=args.threshold)
+    gate = _build_gate(args.gate, threshold=args.threshold)
 
     reviews = council.run(artifact_text, system_prompt)
 
@@ -392,7 +377,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
         out_path = Path.cwd() / f"council-gate-{args.artifact.stem}-{stamp}.md"
         out_path.write_text(report, encoding="utf-8")
         print(f"\nreport saved → {out_path}", file=sys.stderr)
-        print(f"verdict: {v.verdict.value}  ·  disagreement: {v.disagreement:.2f}", file=sys.stderr)
+        print(f"verdict: {v.verdict.value}  ·  escalation score: {v.score:.2f}", file=sys.stderr)
 
     if args.print or args.no_save:
         # Always print to stdout if --print was passed, or if save was disabled.
@@ -463,8 +448,8 @@ def _build_markdown_report(
     out.append(f"| **Verdict** | `{v.verdict.value}` |")
     out.append(f"| **Reviewers** | {len(ok)} returned reviews · {len(failed)} errored |")
     out.append(
-        f"| **Disagreement** | {v.disagreement:.2f} on a 0–1 scale "
-        f"(threshold {args.threshold:.2f}; higher = more divergence) |"
+        f"| **Escalation score** | {v.score:.2f} on a 0–1 scale "
+        f"(threshold {args.threshold:.2f}; higher = more likely to escalate) |"
     )
     out.append(f"| **Mode** | {args.mode} |")
     if redaction_count:
@@ -632,7 +617,8 @@ def main() -> int:
     review.add_argument(
         "--threshold",
         type=float,
-        default=float(os.environ.get("GATE_THRESHOLD", "0.35")),
+        default=float(os.environ.get("GATE_THRESHOLD", "0.5")),
+        help="Escalation-score threshold in [0, 1]. Default 0.5.",
     )
     review.add_argument(
         "--skip-redaction-check",
@@ -652,12 +638,13 @@ def main() -> int:
         help="In addition to saving the report, also print it to stdout.",
     )
     review.add_argument(
-        "--gate-version",
-        choices=("v1", "v2"),
-        default=os.environ.get("COUNCIL_GATE_VERSION", "v1"),
+        "--gate",
+        choices=GATE_MODELS,
+        default=os.environ.get("COUNCIL_GATE", "lr"),
         help=(
-            "v1 (default) = flat Jaccard; v2 = severity-weighted entropy with "
-            "semantic clustering. v2 needs `pip install council-gate[gate-v2]`."
+            "Verdict model. lr (default) = logistic regression on the review "
+            "form; tabpfn-lr / tabpfn-gb = TabPFN-Lite models distilled from a "
+            "TabPFN v2 teacher. All run locally in pure Python."
         ),
     )
     review.add_argument(

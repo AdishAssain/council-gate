@@ -1,29 +1,39 @@
-"""Entropy gate: classify a council's reviews as consensus or disagreement.
+"""Learned gate: classify a council's reviews as consensus or disagreement.
 
 Asymmetric by design (see README §"Why the gate is asymmetric"):
-- High disagreement → ESCALATE. Reviewers don't agree; humans must adjudicate.
-- Low disagreement → CONSENSUS_CHECK. Not auto-approval — surface known
+- High escalation score → ESCALATE. Reviewers don't agree; humans must adjudicate.
+- Low escalation score → CONSENSUS_CHECK. Not auto-approval — surface known
   correlated-failure dimensions for human review.
 
-Two scoring backends:
-- EntropyGate (v1): mean (1 - Jaccard) over reviewer pairs, token-bag based.
-  Crude, vocabulary-sensitive, nits weighted equally with criticals.
-- EntropyGateV2: severity-weighted semantic agreement over finding clusters.
-  Requires an Embedder (see council_gate.embeddings).
+The verdict is a frozen classifier over features of the structured review
+form (seat count, severity mix, dispositions, overall recommendations).
+Models ship as JSON in _assets and run in pure Python:
+- lr         — logistic regression fit on source-derived labels (default)
+- tabpfn-lr  — TabPFN-Lite-LR, distilled from a TabPFN v2 teacher
+- tabpfn-gb  — TabPFN-Lite-GB, gradient-boosted trees, same teacher
+
+A block-vs-accept split among reviewers escalates unconditionally: reviewers
+can produce near-identical findings yet disagree on whether the artifact is
+acceptable.
 """
 from __future__ import annotations
 
-import logging
+import json
 import math
-import re
 from dataclasses import dataclass, field
 from enum import StrEnum
+from importlib.resources import files
+from typing import Any
 
-from council_gate.clustering import FindingCluster, cluster_findings
-from council_gate.embeddings import Embedder
-from council_gate.types import Review, Severity
+from council_gate.types import Recommendation, Review, Severity
 
-log = logging.getLogger(__name__)
+GATE_MODELS = ("lr", "tabpfn-lr", "tabpfn-gb")
+
+_MODEL_ASSETS = {
+    "lr": "gate_lr.json",
+    "tabpfn-lr": "gate_tabpfn_lr.json",
+    "tabpfn-gb": "gate_tabpfn_gb.json",
+}
 
 
 class Verdict(StrEnum):
@@ -35,25 +45,10 @@ class Verdict(StrEnum):
 @dataclass(slots=True, frozen=True)
 class GateVerdict:
     verdict: Verdict
-    disagreement: float  # 0.0 = identical, 1.0 = no overlap
+    score: float  # escalation probability, 0.0 = consensus, 1.0 = escalate
     reviewer_count: int
     reason: str
-    pair_distances: tuple[tuple[str, str, float], ...] = field(default_factory=tuple)
-    clusters: tuple[FindingCluster, ...] = field(default_factory=tuple)
-    severity_weighted: bool = False
-    # Top-cluster signal: of the critical/major clusters, what's the largest
-    # fraction of reviewers that converged on a single serious issue? This is
-    # the "did the council unanimously catch a real bug" metric — the entropy
-    # score is dominated by singleton noise, so this auxiliary lets downstream
-    # consumers see consensus when it exists.
-    top_cluster_agreement: float = 0.0
-    top_cluster_severity: Severity | None = None
-    top_cluster_summary: str | None = None
-    # Reviewers' artifact-level recommendations (block/revise/accept), in
-    # review order. A polar split (block AND accept present) forces ESCALATE:
-    # reviewers can produce near-identical findings yet disagree on whether
-    # the artifact is acceptable — entropy alone cannot see that.
-    recommendations: tuple[str, ...] = ()
+    recommendations: tuple[str, ...] = field(default_factory=tuple)
 
 
 CORRELATED_BLINDSPOT_DIMENSIONS = (
@@ -71,393 +66,141 @@ SEVERITY_WEIGHTS: dict[Severity, float] = {
     "nit": 0.25,
 }
 
+_DISPOSITIONS = ("defect", "risk", "gap", "question", "endorse")
+_RECOMMENDATIONS: tuple[Recommendation, ...] = ("block", "revise", "accept")
 
-def _tokens(s: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9]{4,}", s.lower())}
+_FRIENDLY = {
+    "n_findings": "total findings",
+    "n_ok": "concurring reviewer count",
+    "critical_rate": "share of critical findings",
+    "major_rate": "share of major findings",
+    "mean_sev_w": "mean finding severity",
+    "disp_defect": "defect-type findings",
+    "disp_risk": "risk-type findings",
+    "disp_gap": "gap-type findings",
+    "disp_question": "question-type findings",
+    "disp_endorse": "endorsements",
+    "rec_block": "reviewers recommending block",
+    "rec_revise": "reviewers recommending revise",
+    "rec_accept": "reviewers recommending accept",
+    "polar": "block-vs-accept split",
+}
+
+
+def _features(reviews: list[Review]) -> dict[str, float]:
+    ok = [r for r in reviews if r.ok]
+    findings = [f for r in ok for f in r.findings]
+    recs = [r.overall.recommendation for r in ok if r.overall is not None]
+    n = max(len(findings), 1)
+    out: dict[str, float] = {
+        "n_findings": float(len(findings)),
+        "n_ok": float(len(ok)),
+        "critical_rate": sum(f.severity == "critical" for f in findings) / n,
+        "major_rate": sum(f.severity == "major" for f in findings) / n,
+        "mean_sev_w": sum(SEVERITY_WEIGHTS[f.severity] for f in findings) / n,
+        "polar": 1.0 if ("block" in recs and "accept" in recs) else 0.0,
+    }
+    for d in _DISPOSITIONS:
+        out[f"disp_{d}"] = sum(f.disposition == d for f in findings) / n
+    for rec in _RECOMMENDATIONS:
+        out[f"rec_{rec}"] = recs.count(rec) / len(recs) if recs else 0.0
+    return out
 
 
 def _recommendations(reviews: list[Review]) -> tuple[str, ...]:
-    return tuple(r.overall.recommendation for r in reviews if r.overall is not None)
+    return tuple(r.overall.recommendation for r in reviews if r.ok and r.overall)
 
 
-def _polar_split(recs: tuple[str, ...]) -> bool:
-    return "block" in recs and "accept" in recs
-
-
-def _conflict_reason(recs: tuple[str, ...]) -> str:
-    return (
-        f"overall verdicts conflict ({', '.join(recs)}) — one reviewer would "
-        "block what another would accept; human adjudication required."
-    )
-
-
-def _pairwise_disagreement(
-    reviews: list[Review],
-) -> tuple[float, int, tuple[tuple[str, str, float], ...]]:
-    """Mean (1 - Jaccard) over reviewer pairs that have non-empty token bags.
-
-    Returns (mean_disagreement, comparable_pair_count, per_pair_distances).
-    Pairs where both reviewers' token bags are empty are skipped — treating
-    them as agreement is a false-consensus bug.
-    """
-    bags: list[tuple[str, set[str]]] = []
-    for r in reviews:
-        toks: set[str] = set()
-        for f in r.findings:
-            toks |= _tokens(f.summary)
-        if not toks and r.raw_text:
-            toks = _tokens(r.raw_text)
-        bags.append((r.model_id, toks))
-
-    distances: list[float] = []
-    pair_records: list[tuple[str, str, float]] = []
-    for i in range(len(bags)):
-        for j in range(i + 1, len(bags)):
-            id_a, a = bags[i]
-            id_b, b = bags[j]
-            if not a and not b:
-                continue  # both empty: not comparable, skip
-            jaccard = len(a & b) / max(len(a | b), 1)
-            d = 1.0 - jaccard
-            distances.append(d)
-            pair_records.append((id_a, id_b, d))
-    if not distances:
-        return 0.0, 0, ()
-    mean = sum(distances) / len(distances)
-    return mean, len(distances), tuple(pair_records)
-
-
-_MAX_SEVERITY_WEIGHT = max(SEVERITY_WEIGHTS.values())
-
-_SERIOUS_SEVERITIES: frozenset[Severity] = frozenset(("critical", "major"))
-
-# Critical singletons survive truncation — one reviewer catching a real
-# critical is still signal.
-_KEEP_SINGLETON_SEVERITIES: frozenset[Severity] = frozenset(("critical",))
-
-
-def _top_cluster_agreement(
-    clusters: list[FindingCluster], n_reviewers: int
-) -> tuple[float, Severity | None, str | None]:
-    """Find the largest critical/major cluster and return its agreement fraction.
-
-    The entropy score is dominated by singleton-finding noise. This signal
-    bypasses that by asking: ignoring nits and minors, what's the most-agreed
-    serious finding? Tie-break by severity (critical > major).
-    """
-    if n_reviewers <= 0:
-        return 0.0, None, None
-    serious = [c for c in clusters if c.max_severity in _SERIOUS_SEVERITIES]
-    if not serious:
-        return 0.0, None, None
-    best = max(
-        serious,
-        key=lambda c: (c.n_reviewers, SEVERITY_WEIGHTS.get(c.max_severity, 0.0)),
-    )
-    return best.n_reviewers / n_reviewers, best.max_severity, best.summary
-
-
-def _severity_weighted_entropy(
-    clusters: list[FindingCluster], n_reviewers: int
-) -> float:
-    """Severity-weighted Shannon entropy × severity density, normalized to [0, 1].
-
-    Two-factor disagreement:
-    1. Entropy term: how spread-out the findings are across clusters.
-       Weight cluster i by w_i = n_reviewers_in_cluster × severity_weight(s_i).
-       Treat as probability distribution, compute Shannon entropy, normalize
-       by log(K) so result is in [0, 1].
-    2. Severity-density term: mean cluster severity / max severity weight.
-       Dampens disagreement when reviewers diverge only on nits.
-
-    disagreement = H_normalized × severity_density.
-
-    Returns 0.0 when there's only one cluster (perfect agreement) or no
-    findings parsed.
-    """
-    K = len(clusters)
-    if K < 2 or n_reviewers <= 0:
-        return 0.0
-    weights = [
-        c.n_reviewers * SEVERITY_WEIGHTS.get(c.max_severity, 1.0) for c in clusters
+def _score_linear(x: list[float], m: dict[str, Any]) -> tuple[float, list[float]]:
+    """Return (probability, per-feature contribution to the logit)."""
+    contribs = [
+        w * ((xi - mu) / sd)
+        for xi, mu, sd, w in zip(x, m["means"], m["stds"], m["coefs"], strict=True)
     ]
-    total = sum(weights)
-    if total <= 0:
-        return 0.0
-    h = 0.0
-    for w in weights:
-        if w > 0:
-            p = w / total
-            h -= p * math.log(p)
-    h_max = math.log(K)
-    h_norm = h / h_max if h_max > 0 else 0.0
-    severity_mean = (
-        sum(SEVERITY_WEIGHTS.get(c.max_severity, 1.0) for c in clusters) / K
-    )
-    severity_density = severity_mean / _MAX_SEVERITY_WEIGHT
-    return h_norm * severity_density
+    z = m["intercept"] + sum(contribs)
+    return 1.0 / (1.0 + math.exp(-z)), contribs
 
 
-class EntropyGate:
-    """V1: token-bag Jaccard, no semantic awareness, severity-blind."""
+def _score_gb(x: list[float], m: dict[str, Any]) -> float:
+    raw = m["init_raw"]
+    for t in m["trees"]:
+        node = 0
+        while t["cl"][node] != -1:
+            node = t["cl"][node] if x[t["feat"][node]] <= t["thr"][node] else t["cr"][node]
+        raw += m["learning_rate"] * t["val"][node]
+    return 1.0 / (1.0 + math.exp(-raw))
 
-    def __init__(self, threshold: float = 0.35) -> None:
+
+class LearnedGate:
+    def __init__(self, model: str = "lr", threshold: float = 0.5) -> None:
+        if model not in _MODEL_ASSETS:
+            raise ValueError(f"unknown gate model {model!r}; choose from {GATE_MODELS}")
         if not 0.0 <= threshold <= 1.0:
             raise ValueError(f"threshold must be in [0, 1], got {threshold}")
+        self.model_name = model
         self.threshold = threshold
+        self._m = json.loads(
+            files("council_gate._assets").joinpath(_MODEL_ASSETS[model]).read_text()
+        )
 
     def evaluate(self, reviews: list[Review]) -> GateVerdict:
-        ok_reviews = [r for r in reviews if r.ok]
-        recs = _recommendations(ok_reviews)
-        if len(ok_reviews) < 2:
+        ok = [r for r in reviews if r.ok]
+        recs = _recommendations(reviews)
+        if len(ok) < 2:
             return GateVerdict(
                 verdict=Verdict.INSUFFICIENT,
-                disagreement=0.0,
-                reviewer_count=len(ok_reviews),
-                reason=f"need >=2 successful reviewers, got {len(ok_reviews)}",
+                score=0.0,
+                reviewer_count=len(ok),
+                reason=f"need >=2 successful reviewers, got {len(ok)}",
                 recommendations=recs,
             )
+        feats = _features(reviews)
+        x = [feats[name] for name in self._m["features"]]
+        if self._m["type"] == "linear":
+            prob, contribs = _score_linear(x, self._m)
+            drivers = self._drivers(contribs)
+        else:
+            prob = _score_gb(x, self._m)
+            drivers = f"{len(self._m['trees'])}-tree learned ensemble"
 
-        d, pair_count, pair_records = _pairwise_disagreement(ok_reviews)
-        log.info(
-            "gate-v1: disagreement=%.3f threshold=%.3f comparable_pairs=%d",
-            d,
-            self.threshold,
-            pair_count,
-        )
-        if _polar_split(recs):
+        if "block" in recs and "accept" in recs:
             return GateVerdict(
                 verdict=Verdict.ESCALATE,
-                disagreement=d,
-                reviewer_count=len(ok_reviews),
-                reason=_conflict_reason(recs),
-                pair_distances=pair_records,
-                recommendations=recs,
-            )
-        if pair_count == 0:
-            return GateVerdict(
-                verdict=Verdict.INSUFFICIENT,
-                disagreement=0.0,
-                reviewer_count=len(ok_reviews),
+                score=max(prob, self.threshold),
+                reviewer_count=len(ok),
                 reason=(
-                    "no comparable reviewer pairs (all reviews parsed to empty "
-                    "findings AND empty raw_text — likely a parser or adapter bug)"
+                    f"overall verdicts conflict ({', '.join(recs)}) — one reviewer "
+                    "would block what another would accept; human adjudication required."
                 ),
                 recommendations=recs,
             )
-
-        if d >= self.threshold:
+        if prob >= self.threshold:
             return GateVerdict(
                 verdict=Verdict.ESCALATE,
-                disagreement=d,
-                reviewer_count=len(ok_reviews),
-                reason=f"disagreement {d:.2f} >= threshold {self.threshold:.2f}",
-                pair_distances=pair_records,
+                score=prob,
+                reviewer_count=len(ok),
+                reason=f"escalation score {prob:.2f} >= {self.threshold:.2f} ({drivers})",
                 recommendations=recs,
             )
         return GateVerdict(
             verdict=Verdict.CONSENSUS_CHECK,
-            disagreement=d,
-            reviewer_count=len(ok_reviews),
+            score=prob,
+            reviewer_count=len(ok),
             reason=(
-                f"disagreement {d:.2f} < threshold {self.threshold:.2f}. "
+                f"escalation score {prob:.2f} < {self.threshold:.2f} ({drivers}). "
                 "Consensus is not approval — verify against correlated-blindspot "
                 "dimensions before trusting."
             ),
-            pair_distances=pair_records,
             recommendations=recs,
         )
 
-
-class EntropyGateV2:
-    """V2: severity-weighted Shannon entropy over semantic finding clusters.
-
-    Two reviewers describing the same flaw with different wording cluster
-    together. Disagreement = normalized Shannon entropy of the cluster
-    severity-weighted distribution × severity density. Both terms in [0, 1].
-
-    Two extra controls override raw entropy where it misfires:
-
-    1. Singleton truncation (SVD-style noise floor): clusters with fewer
-       than `min_cluster_size` reviewers contribute as "noise" and aren't
-       counted in the entropy sum. Default 2 — singletons drop out.
-    2. Top-cluster consensus override: if any critical/major cluster has
-       `top_cluster_agreement >= consensus_override_min`, the verdict is
-       forced to CONSENSUS_CHECK regardless of entropy. Strong unanimous
-       agreement on a serious finding *is* consensus, even when each
-       reviewer also raises their own singleton tail.
-    """
-
-    def __init__(
-        self,
-        embedder: Embedder,
-        threshold: float = 0.30,
-        cluster_threshold: float = 0.65,
-        min_cluster_size: int = 2,
-        consensus_override_min: float = 0.80,
-    ) -> None:
-        if not 0.0 <= threshold <= 1.0:
-            raise ValueError(f"threshold must be in [0, 1], got {threshold}")
-        if not 0.0 <= cluster_threshold <= 1.0:
-            raise ValueError(
-                f"cluster_threshold must be in [0, 1], got {cluster_threshold}"
-            )
-        if min_cluster_size < 1:
-            raise ValueError(
-                f"min_cluster_size must be >= 1, got {min_cluster_size}"
-            )
-        # Values > 1.0 effectively disable the override (top_cluster_agreement
-        # is always <= 1.0). Useful for ablation studies.
-        if consensus_override_min < 0.0:
-            raise ValueError(
-                f"consensus_override_min must be >= 0, got {consensus_override_min}"
-            )
-        self.embedder = embedder
-        self.threshold = threshold
-        self.cluster_threshold = cluster_threshold
-        self.min_cluster_size = min_cluster_size
-        self.consensus_override_min = consensus_override_min
-
-    def evaluate(self, reviews: list[Review]) -> GateVerdict:
-        ok_reviews = [r for r in reviews if r.ok]
-        recs = _recommendations(ok_reviews)
-        if len(ok_reviews) < 2:
-            return GateVerdict(
-                verdict=Verdict.INSUFFICIENT,
-                disagreement=0.0,
-                reviewer_count=len(ok_reviews),
-                reason=f"need >=2 successful reviewers, got {len(ok_reviews)}",
-                severity_weighted=True,
-                recommendations=recs,
-            )
-
-        labeled = [(r.model_id, f) for r in ok_reviews for f in r.findings]
-        if not labeled:
-            if _polar_split(recs):
-                # Clean-looking reviews can still disagree at the artifact
-                # level; that's a verdict, not a parsing failure.
-                return GateVerdict(
-                    verdict=Verdict.ESCALATE,
-                    disagreement=0.0,
-                    reviewer_count=len(ok_reviews),
-                    reason=_conflict_reason(recs),
-                    severity_weighted=True,
-                    recommendations=recs,
-                )
-            return GateVerdict(
-                verdict=Verdict.INSUFFICIENT,
-                disagreement=0.0,
-                reviewer_count=len(ok_reviews),
-                reason=(
-                    "no parsed findings across reviewers — JSON parsing likely "
-                    "failed; check raw_text and consider lowering threshold"
-                ),
-                severity_weighted=True,
-                recommendations=recs,
-            )
-
-        clusters = cluster_findings(
-            labeled, self.embedder, threshold=self.cluster_threshold
+    def _drivers(self, contribs: list[float]) -> str:
+        ranked = sorted(
+            zip(self._m["features"], contribs, strict=True), key=lambda p: -abs(p[1])
         )
-        signal_clusters = [
-            c
-            for c in clusters
-            if c.n_reviewers >= self.min_cluster_size
-            or c.max_severity in _KEEP_SINGLETON_SEVERITIES
+        parts = [
+            f"{_FRIENDLY.get(name, name)} {'→escalate' if c > 0 else '→consensus'}"
+            for name, c in ranked[:3]
+            if abs(c) > 1e-9
         ]
-        # Fall back to all clusters when truncation would empty the set,
-        # otherwise we'd fake-zero the disagreement.
-        entropy_clusters = signal_clusters if signal_clusters else clusters
-        disagreement = _severity_weighted_entropy(entropy_clusters, len(ok_reviews))
-        top_frac, top_sev, top_summary = _top_cluster_agreement(
-            clusters, len(ok_reviews)
-        )
-        log.info(
-            "gate-v2: disagreement=%.3f threshold=%.3f clusters=%d "
-            "signal_clusters=%d (used_for_entropy=%d) reviewers=%d "
-            "top_cluster_agreement=%.2f (severity=%s)",
-            disagreement,
-            self.threshold,
-            len(clusters),
-            len(signal_clusters),
-            len(entropy_clusters),
-            len(ok_reviews),
-            top_frac,
-            top_sev,
-        )
-
-        # A polar recommendation split beats everything below, including the
-        # consensus override: shared findings don't make a block-vs-accept
-        # disagreement go away.
-        if _polar_split(recs):
-            return GateVerdict(
-                verdict=Verdict.ESCALATE,
-                disagreement=disagreement,
-                reviewer_count=len(ok_reviews),
-                reason=_conflict_reason(recs),
-                clusters=tuple(clusters),
-                severity_weighted=True,
-                top_cluster_agreement=top_frac,
-                top_cluster_severity=top_sev,
-                top_cluster_summary=top_summary,
-                recommendations=recs,
-            )
-
-        # Override entropy when reviewers strongly agree on a serious finding.
-        # Without this, a singleton tail inflates entropy past threshold even
-        # when the load-bearing finding is unanimous.
-        if (
-            top_frac >= self.consensus_override_min
-            and top_sev in ("critical", "major")
-        ):
-            return GateVerdict(
-                verdict=Verdict.CONSENSUS_CHECK,
-                disagreement=disagreement,
-                reviewer_count=len(ok_reviews),
-                reason=(
-                    f"top_cluster_agreement {top_frac:.2f} >= "
-                    f"{self.consensus_override_min:.2f} on a {top_sev} finding "
-                    "— strong consensus on a serious issue overrides entropy."
-                ),
-                clusters=tuple(clusters),
-                severity_weighted=True,
-                top_cluster_agreement=top_frac,
-                top_cluster_severity=top_sev,
-                top_cluster_summary=top_summary,
-                recommendations=recs,
-            )
-
-        if disagreement >= self.threshold:
-            return GateVerdict(
-                verdict=Verdict.ESCALATE,
-                disagreement=disagreement,
-                reviewer_count=len(ok_reviews),
-                reason=(
-                    f"weighted disagreement {disagreement:.2f} "
-                    f">= threshold {self.threshold:.2f} across "
-                    f"{len(signal_clusters)} signal clusters "
-                    f"(of {len(clusters)} total; singletons truncated)"
-                ),
-                clusters=tuple(clusters),
-                severity_weighted=True,
-                top_cluster_agreement=top_frac,
-                top_cluster_severity=top_sev,
-                top_cluster_summary=top_summary,
-                recommendations=recs,
-            )
-        return GateVerdict(
-            verdict=Verdict.CONSENSUS_CHECK,
-            disagreement=disagreement,
-            reviewer_count=len(ok_reviews),
-            reason=(
-                f"weighted disagreement {disagreement:.2f} "
-                f"< threshold {self.threshold:.2f}. Consensus is not approval "
-                "— verify against correlated-blindspot dimensions before trusting."
-            ),
-            clusters=tuple(clusters),
-            severity_weighted=True,
-            top_cluster_agreement=top_frac,
-            top_cluster_severity=top_sev,
-            top_cluster_summary=top_summary,
-            recommendations=recs,
-        )
+        return "; ".join(parts) if parts else "no strong drivers"

@@ -6,6 +6,21 @@
 >
 > Until 2.0, treat version bumps as 0Ver-style: any release can change behaviour. Read the entry below before upgrading.
 
+## 1.4.0 — 2026-07-22
+
+The learned-gate release. **Breaking** (pre-2.0 policy): the `v1`/`v2` entropy gates, `--gate-version`, `COUNCIL_GATE_VERSION`, and the `gate-v2` extra are removed.
+
+**Verdicts come from a learned classifier now.** Fresh evaluation on 140 new councils showed the calibrated review form carries the whole signal: a 14-feature logistic regression over the form (seat count, severity/disposition mix, recommendation split) outperformed every entropy/clustering configuration; the strongest tabular foundation model could not beat the same features, students distilled from a TabPFN v2 teacher scored slightly higher than the direct fit, and a frontier LLM judge scored far below all of them. Three models ship as JSON assets with pure-Python inference (no new dependencies, microsecond verdicts):
+
+- `lr` (default) — logistic regression fit directly on source-derived labels. Verdict reasons cite the top contributing factors.
+- `tabpfn-lr`, `tabpfn-gb` — TabPFN-Lite models distilled from a TabPFN v2 teacher (Prior Labs License v1.1; license copy bundled). Scored slightly higher in evaluation; pick via `--gate` / `COUNCIL_GATE`.
+
+Select with `--gate {lr,tabpfn-lr,tabpfn-gb}`; `GATE_THRESHOLD` now means escalation probability (default 0.5). Reports show an "Escalation score" instead of "Disagreement". Over-escalation on held-out data dropped from ~100% (old v1 default) / ~21% (old v2) to 8–12%.
+
+**Removed:** `EntropyGate`, `EntropyGateV2`, semantic clustering, the MiniLM embedder, and the `gate-v2` extra (~600 lines). The block-vs-accept escalation rule and the structured-form pipeline that make the learned gate possible are unchanged from 1.3.0.
+
+**Robustness:** structured-output requests that return empty content now fall back to plain prompting; malformed gateway responses retry instead of erroring; default seat timeout raised to 240 s for large artifacts.
+
 ## 1.3.0 — 2026-07-21
 
 The structured-review release. Additive and backward-compatible; reports gain columns, no flags change meaning.

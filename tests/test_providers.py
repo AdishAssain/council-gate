@@ -313,3 +313,44 @@ def test_structured_output_no_fallback_on_auth_error(monkeypatch):
     with pytest.raises(RuntimeError, match="Sign-in failed"):
         p.review("artifact", "prompt")
     assert len(calls) == 1
+
+
+def test_structured_output_empty_content_falls_back(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "1")
+    null_body = {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]}
+    calls = _mock_post_seq(monkeypatch, [(200, null_body), (200, _OK_BODY)])
+    p = OpenRouterProvider("test/model")
+    r = p.review("artifact", "prompt")
+    assert len(calls) == 2
+    assert "response_format" not in calls[1]
+    assert r.ok
+
+
+def test_malformed_body_is_retryable(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "0")
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(json)
+        if len(calls) == 1:
+            return httpx.Response(
+                200, content=b'{"choices": [{"mes', request=httpx.Request("POST", url)
+            )
+        return httpx.Response(200, json=_OK_BODY, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    r = OpenRouterProvider("test/model").review("artifact", "prompt")
+    assert len(calls) == 2  # tenacity retried the malformed body
+    assert r.ok
+
+
+def test_null_response_body_is_retryable(monkeypatch):
+    _set_key(monkeypatch)
+    monkeypatch.setenv("COUNCIL_STRUCTURED_OUTPUT", "0")
+    calls = _mock_post_seq(monkeypatch, [(200, None), (200, _OK_BODY)])
+    r = OpenRouterProvider("test/model").review("artifact", "prompt")
+    assert len(calls) == 2
+    assert r.ok
