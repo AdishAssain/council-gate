@@ -48,7 +48,7 @@ COUNCIL_GENERATOR_PROVIDER=anthropic council-gate review --mode <mode> "$ARGUMEN
 Three possible verdicts:
 
 - **`ESCALATE`** → the council disagreed. Paste the printed escalation message into the user's relevant channel (PR comment, Slack, etc.) **verbatim**. Do not summarise — the divergence detail is the value.
-- **`CONSENSUS_CHECK`** → the council converged. Surface the printed correlated-blindspot dimensions to the user and explicitly ask which they want to spot-check manually. Do *not* present this as "approved" — the README explains why low-entropy output is treated as suspect rather than approved.
+- **`CONSENSUS_CHECK`** → the council converged. Surface the printed correlated-blindspot dimensions to the user and explicitly ask which they want to spot-check manually. Do *not* present this as "approved" — the README explains why low-disagreement output is treated as suspect rather than approved.
 - **`INSUFFICIENT`** → fewer than 2 successful seats, or all reviewers parsed empty. Tell the user to check `OPENROUTER_API_KEY` and `COUNCIL_MODELS` in `~/.config/council-gate/.env`.
 
 If the CLI exits non-zero with a redaction-refusal message (the artifact filename or content matched a secret-bearing pattern), do **not** suggest `--skip-redaction-check` reflexively. Ask the user whether they want to bypass; explain that the body of the artifact will reach external LLM APIs.
